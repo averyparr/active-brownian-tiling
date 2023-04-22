@@ -61,15 +61,17 @@ def get_derivatives(
         theta: jnp.ndarray,
 
         rand_key: jnp.ndarray,
-        dt: float = DEFAULT_DT,
-        v0: float = DEFAULT_V0,
-        translationGamma: float = DEFAULT_TRANSLATION_GAMMA,
-        translationDiffusion: float = DEFAULT_TRANSLATION_DIFFUSION,
-        rotationGamma: float = DEFAULT_ROTATION_GAMMA,
-        rotationDiffusion: float = DEFAULT_ROTATION_DIFFUSION,
-        omega: float = DEFAULT_OMEGA,
+        sim_params: dict = {},
         ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     num_particles = r.shape[0]
+
+    dt =                                sim_params.get("dt",DEFAULT_DT)
+    v0 =                                sim_params.get("v0",DEFAULT_V0)
+    translationGamma =                  sim_params.get("translationGamma",DEFAULT_TRANSLATION_GAMMA)
+    translationDiffusion =              sim_params.get("translationDiffusion",DEFAULT_TRANSLATION_DIFFUSION)
+    rotationGamma =                     sim_params.get("rotationGamma",DEFAULT_ROTATION_GAMMA)
+    rotationDiffusion =                 sim_params.get("rotationDiffusion",DEFAULT_ROTATION_DIFFUSION)
+    omega =                             sim_params.get("omega",DEFAULT_OMEGA)
 
     heading_vector = jnp.array([jnp.cos(theta),jnp.sin(theta)]).transpose()
     rand_key, zeta = translation_noise(rand_key,num_particles,translationDiffusion,dt)
@@ -79,20 +81,12 @@ def get_derivatives(
     theta_dot = omega + xi/rotationGamma
 
     return rand_key, r_dot, theta_dot
-get_derivatives = jit(get_derivatives, static_argnums=(3,4,5,6,7,8,9))
+get_derivatives = jit(get_derivatives)
 
 def run_sim(
         initial_positions: jnp.ndarray, 
         initial_heading_angles: jnp.ndarray,
-        dt: float = DEFAULT_DT,
-        total_time: float = DEFAULT_TOTAL_TIME,
-        v0: float = DEFAULT_V0,
-        translationGamma: float = DEFAULT_TRANSLATION_GAMMA,
-        translationDiffusion: float = DEFAULT_TRANSLATION_DIFFUSION,
-        rotationGamma: float = DEFAULT_ROTATION_GAMMA,
-        rotationDiffusion: float = DEFAULT_ROTATION_DIFFUSION,
-        omega: float = DEFAULT_OMEGA,
-        poissonAngleReassignmentRate: float = DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE,
+        sim_params: dict = {},
         ) -> jnp.ndarray: 
     r"""
     We work with two-dimensional Active Brownian Particles (ABPs). 
@@ -129,7 +123,12 @@ def run_sim(
     with walls parametrized by a sequence of points. 
     """
 
+    dt =                                sim_params.get("dt",DEFAULT_DT)
+    total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
+    poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
+
     rand_key = initial_random_key
+
     num_particles = initial_heading_angles.shape[0]
     num_steps = int(total_time / dt)
 
@@ -145,7 +144,8 @@ def run_sim(
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
     for step in trange(num_steps):    
-        rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,dt,v0,translationGamma,translationDiffusion,rotationGamma,rotationDiffusion,omega)
+        # rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,dt,v0,translationGamma,translationDiffusion,rotationGamma,rotationDiffusion,omega)
+        rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
 
@@ -165,5 +165,7 @@ def run_sim(
 
     return r, theta
 
-print(run_sim(jnp.zeros((10,2)),jnp.ones(10)))
+
+
+print(run_sim(jnp.zeros((1000,2)),jnp.ones(1000)))
     
