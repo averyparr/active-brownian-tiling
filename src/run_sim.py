@@ -53,7 +53,7 @@ def translation_noise(rand_key, num_particles: int, translationDiffusion: float,
 
     key, new_key = rand.split(rand_key)
 
-    return new_key, rand.normal(key, (num_particles,2), float) * jnp.sqrt(2*translationDiffusion / dt)
+    return new_key, rand.normal(key, (num_particles,1,2), float) * jnp.sqrt(2*translationDiffusion / dt)
 translation_noise = jit(translation_noise,static_argnums=(1,2,3))
 
 def get_derivatives(
@@ -73,9 +73,9 @@ def get_derivatives(
     rotationDiffusion =                 sim_params.get("rotationDiffusion",DEFAULT_ROTATION_DIFFUSION)
     omega =                             sim_params.get("omega",DEFAULT_OMEGA)
 
-    heading_vector = jnp.array([jnp.cos(theta),jnp.sin(theta)]).transpose()
+    heading_vector = jnp.array([[jnp.cos(theta),jnp.sin(theta)]]).transpose([2,0,1])
     rand_key, zeta = translation_noise(rand_key,num_particles,translationDiffusion,dt)
-    r_dot = v0 * heading_vector + zeta/translationGamma
+    r_dot = v0 * heading_vector + zeta/translationGamma # should have shape (n,1,2).
 
     rand_key, xi = rotation_noise(rand_key, num_particles, rotationDiffusion, dt)
     theta_dot = omega + xi/rotationGamma
@@ -132,7 +132,7 @@ def run_sim(
     num_particles = initial_heading_angles.shape[0]
     num_steps = int(total_time / dt)
 
-    r = initial_positions.copy()
+    r = initial_positions.copy().reshape((num_particles,1,2))
     theta = initial_heading_angles.copy()
 
     # We know that angle reassignment is done as a Poisson process, so the time
@@ -143,8 +143,7 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    for step in trange(num_steps):    
-        # rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,dt,v0,translationGamma,translationDiffusion,rotationGamma,rotationDiffusion,omega)
+    for step in range(num_steps):    
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
