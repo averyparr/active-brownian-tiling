@@ -1,4 +1,5 @@
 from typing import Tuple
+import tqdm
 
 import numpy as np
 import jax.numpy as jnp
@@ -14,9 +15,9 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
 
     Parameters
     ----------
-    r : numpy.ndarray
+    r : jnp.ndarray
         A 3D array of particle positions with shape (n_frames, n_particles, 2).
-    theta : numpy.ndarray
+    theta : jnp.ndarray
         A 2D array of particle headings with shape (n_frames, n_particles).
     width : float
         The width of the region to be animated.
@@ -42,27 +43,26 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
 
     # Set up the figure and axis
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_xlim(0, width)
-    ax.set_ylim(0, height)
+    ax.set_xlim(-width/2, width/2)
+    ax.set_ylim(-height/2, height/2)
 
-    for frame in range(n_frames):
+    for frame in (pbar := tqdm(range(n_frames))):
+        pbar.set_description(f"Processing {frame}")
+        
         # Clear the axis
         ax.clear()
-        ax.set_xlim(0, width)
-        ax.set_ylim(0, height)
+        ax.set_xlim(-width/2, width/2)
+        ax.set_ylim(-height/2, height/2)
 
-        for particle in range(n_particles):
-            # Plot the particle position
-            position = r[frame, particle]
-            heading = theta[frame, particle]
-            ax.plot(position[0], position[1], 'o')
+        # Plot the particle positions
+        positions = r[frame]
+        ax.scatter(positions[:, 0], positions[:, 1])
 
-            if show_arrows:
-                # Add an arrow to represent the heading
-                dx = np.cos(heading)
-                dy = np.sin(heading)
-                arrow = FancyArrow(position[0], position[1], dx, dy, width=0.1, length_includes_head=True, color='red')
-                ax.add_patch(arrow)
+        if show_arrows:
+            # Calculate the heading vectors
+            headings = np.column_stack((np.cos(theta[frame]), np.sin(theta[frame])))
+            # Plot the arrows using quiver
+            ax.quiver(positions[:, 0], positions[:, 1], headings[:, 0], headings[:, 1], color='red', angles='xy', scale_units='xy', scale=1)
 
         # Save the frame to the buffer
         buf = io.BytesIO()
