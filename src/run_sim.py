@@ -1,8 +1,9 @@
+from typing import Tuple
+
 import jax.numpy as jnp
 from jax import random as rand
 from jax import jit
 
-from typing import Tuple
 
 from tqdm import trange
 
@@ -131,6 +132,7 @@ def run_sim(
     rand_key = initial_random_key
     num_particles = initial_heading_angles.shape[0]
     num_steps = int(total_time / dt)
+
     r = initial_positions.copy()
     theta = initial_heading_angles.copy()
 
@@ -163,7 +165,5 @@ def run_sim(
 
     return r, theta
 
-print(run_sim(jnp.zeros((1000,2)),jnp.ones(1000)))
-
+print(run_sim(jnp.zeros((10,2)),jnp.ones(10)))
     
-run_sim = jit(run_sim,static_argnums=(2,3,4,5,6,7,8,9,10))
