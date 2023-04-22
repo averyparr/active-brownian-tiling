@@ -4,6 +4,8 @@ from jax import jit
 
 from typing import Tuple
 
+from tqdm import trange
+
 from constants import *
 
 initial_random_key = rand.PRNGKey(678912390)
@@ -75,8 +77,8 @@ def get_derivatives(
     rand_key, xi = rotation_noise(rand_key, num_particles, rotationDiffusion, dt)
     theta_dot = omega + xi/rotationGamma
 
-    rand_key, theta_dot, r_dot
-get_derivatives = jit(get_derivatives, static_argnums=(2,3,4,5,6,7,8,9))
+    return rand_key, r_dot, theta_dot
+get_derivatives = jit(get_derivatives, static_argnums=(3,4,5,6,7,8,9))
 
 def run_sim(
         initial_positions: jnp.ndarray, 
@@ -132,14 +134,14 @@ def run_sim(
     r = initial_positions.copy()
     theta = initial_heading_angles.copy()
 
-    for _ in range(num_steps):    
+    for _ in trange(num_steps):    
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,dt,v0,translationGamma,translationDiffusion,rotationGamma,rotationDiffusion,omega)
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
     
     return r, theta
 
-print(run_sim(jnp.zeros((4,2)),jnp.ones(4)))
+print(run_sim(jnp.zeros((1000,2)),jnp.ones(1000)))
 
     
 run_sim = jit(run_sim,static_argnums=(2,3,4,5,6,7,8,9,10))
