@@ -143,6 +143,19 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
+    wall_positions = jnp.array([
+        [[1.,0.],[0.,1.]],
+        [[1.,0.],[0.,-1.]],
+        ])
+
+    wall_starts = wall_positions[:,0]
+    wall_ends = wall_positions[:,1]
+    wall_diffs = wall_ends - wall_starts
+    diff_mags = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
+    fraction_along_wall_vec = wall_diffs / diff_mags**2
+    rot90_arr = jnp.array([[0,-1],[1,0]])
+    distance_from_wall_vec = rot90_arr @ (wall_diffs / diff_mags)
+
     for step in range(num_steps):    
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         r = r + r_dot * dt
