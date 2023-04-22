@@ -187,11 +187,11 @@ def run_sim(
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
 
-        r_history.append(r.squeeze())
-        theta_history.append(theta.squeeze())
+        if dt * step < 1.:
+            r_history.append(r.squeeze())
+            theta_history.append(theta.squeeze())
 
         if step == next_reassignment_event:
-            print("FAILED")
             reassign_which_particles = (next_reassignment_all_particles==step)
             num_reassignments = jnp.count_nonzero(reassign_which_particles)
             
@@ -209,9 +209,9 @@ def run_sim(
 
     return r, theta
 
-sim_params = {"total_time": 10.}
+sim_params = {"total_time": 100.}
 
-resulting_r,resulting_theta = run_sim(jnp.zeros((10,2)),jnp.ones(10),sim_params)
+resulting_r,resulting_theta = run_sim(jnp.zeros((10000,2)),jnp.ones(10000),sim_params)
 
 print(resulting_r)
 print(resulting_theta)
