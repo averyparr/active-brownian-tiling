@@ -11,6 +11,8 @@ from constants import *
 
 initial_random_key = rand.PRNGKey(678912390)
 
+from visualization import animate_particles
+
 def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.array]:
     r"""
     Computes `\delta`-correlated noise used to cause drift in `\theta(t)`.
@@ -127,6 +129,9 @@ def run_sim(
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
 
+    r_history = []
+    theta_history = []
+
     rand_key = initial_random_key
 
     num_particles = initial_heading_angles.shape[0]
@@ -177,12 +182,16 @@ def run_sim(
     rot90_arr = jnp.array([[0,-1],[1,0]])
     distance_from_wall_vec = rot90_arr @ (wall_diffs / diff_mags)
 
-    for step in range(num_steps):    
+    for step in trange(num_steps):    
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
 
+        r_history.append(r.squeeze())
+        theta_history.append(theta.squeeze())
+
         if step == next_reassignment_event:
+            print("FAILED")
             reassign_which_particles = (next_reassignment_all_particles==step)
             num_reassignments = jnp.count_nonzero(reassign_which_particles)
             
@@ -196,11 +205,13 @@ def run_sim(
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
+    animate_particles(r_history,theta_history,10.,10.,show_arrows=True)
+
     return r, theta
 
+sim_params = {"total_time": 10.}
 
-
-resulting_r,resulting_theta = run_sim(jnp.zeros((10,2)),jnp.ones(10))
+resulting_r,resulting_theta = run_sim(jnp.zeros((10,2)),jnp.ones(10),sim_params)
 
 print(resulting_r)
 print(resulting_theta)
