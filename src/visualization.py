@@ -1,5 +1,5 @@
 from typing import Tuple
-from tqdm import trange
+from tqdm import tqdm
 
 import numpy as np
 import jax.numpy as jnp
@@ -48,7 +48,7 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
     ax.set_xlim(-width/2, width/2)
     ax.set_ylim(-height/2, height/2)
 
-    for frame in (pbar := trange(n_frames)):
+    for frame in (pbar := tqdm(range(n_frames))):
         pbar.set_description(f"Processing {frame}")
         
         # Clear the axis
