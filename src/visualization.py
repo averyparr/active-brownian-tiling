@@ -8,6 +8,8 @@ from matplotlib.patches import FancyArrow
 from PIL import Image
 import io
 
+from constants import DEFAULT_GIF_FPS
+
 def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: float, show_arrows: bool=False, gif_filename: str="particles.gif"):
     """
     Create an animated GIF of particles with their positions in every frame and optionally display arrows
@@ -72,4 +74,4 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
 
     # Save the frames as an animated GIF
     images = [Image.open(io.BytesIO(frame)) for frame in frames]
-    images[0].save(gif_filename, save_all=True, append_images=images[1:], loop=0, duration=100)
+    images[0].save(gif_filename, save_all=True, append_images=images[1:], loop=0, duration=1000/DEFAULT_GIF_FPS)

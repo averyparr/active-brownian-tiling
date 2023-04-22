@@ -77,7 +77,7 @@ def get_derivatives(
 
     heading_vector = jnp.array([[jnp.cos(theta),jnp.sin(theta)]]).transpose([2,0,1])
     rand_key, zeta = translation_noise(rand_key,num_particles,translationDiffusion,dt)
-    r_dot = v0 * heading_vector + zeta/translationGamma # should have shape (n,1,2).
+    r_dot = v0 * heading_vector + 0*zeta/translationGamma # should have shape (n,1,2).
 
     rand_key, xi = rotation_noise(rand_key, num_particles, rotationDiffusion, dt)
     theta_dot = omega + xi/rotationGamma
@@ -187,7 +187,7 @@ def run_sim(
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
 
-        if dt * step < 1.:
+        if step % 10 == 0:
             r_history.append(r.squeeze())
             theta_history.append(theta.squeeze())
 
@@ -209,9 +209,9 @@ def run_sim(
 
     return r, theta
 
-sim_params = {"total_time": 100.}
+sim_params = {"total_time": 10.}
 
-resulting_r,resulting_theta = run_sim(jnp.zeros((10000,2)),jnp.ones(10000),sim_params)
+resulting_r,resulting_theta = run_sim(jnp.zeros((10,2)),jnp.ones(10),sim_params)
 
 print(resulting_r)
 print(resulting_theta)
