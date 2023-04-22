@@ -12,7 +12,7 @@ class TestRandomForces(unittest.TestCase):
         samples = []
 
         for i in range(1000):
-            rand_key, noise = angle_noise(rand_key, 10000, DR, dt)
+            rand_key, noise = rotation_noise(rand_key, 10000, DR, dt)
             samples.append(noise)
         samples = jnp.array(samples)
         
