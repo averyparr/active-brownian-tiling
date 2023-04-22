@@ -179,5 +179,7 @@ def run_sim(
 
 
 
-print(run_sim(jnp.zeros((1000,2)),jnp.ones(1000)))
-    
+resulting_r,resulting_theta = run_sim(jnp.zeros((10,2)),jnp.ones(10))
+
+print(resulting_r)
+print(resulting_theta)
