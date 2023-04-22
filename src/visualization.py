@@ -1,66 +1,75 @@
+from typing import Tuple
+
 import numpy as np
+import jax.numpy as jnp
 import matplotlib.pyplot as plt
-from matplotlib.animation import FuncAnimation
-import matplotlib.patches as patches
-from matplotlib.lines import Line2D
-import time
+from matplotlib.patches import FancyArrow
+from PIL import Image
+import io
 
-class AnimationBox:
-    def __init__(self, width, height):
-        self.width = width
-        self.height = height
-        self.particles = []
-        self.arrows = []
-        self.walls = []
+def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: float, show_arrows: bool=False, gif_filename: str="particles.gif"):
+    """
+    Create an animated GIF of particles with their positions in every frame and optionally display arrows
+    representing their headings at each frame.
 
-    def add_particles(self, r, theta):
-        for r_i, theta_i in zip(r, theta):
-            self.particles.append({"r": r_i, "theta": theta_i, "history": [], "theta_history": []})
+    Parameters
+    ----------
+    r : numpy.ndarray
+        A 3D array of particle positions with shape (n_frames, n_particles, 2).
+    theta : numpy.ndarray
+        A 2D array of particle headings with shape (n_frames, n_particles).
+    width : float
+        The width of the region to be animated.
+    height : float
+        The height of the region to be animated.
+    show_arrows : bool, optional
+        If True, arrows representing particle headings will be displayed in the animation. Default is False.
+    gif_filename : str, optional
+        The filename for the output animated GIF. Default is "particles.gif".
 
-    def add_walls(self, wall_points):
-        self.walls.append(wall_points)
+    Returns
+    -------
+    None
+        The function saves an animated GIF file with the specified filename.
+    """
+    r = np.asarray(r)
+    theta = np.asarray(theta)
+    
+    n_frames, n_particles, _ = r.shape
 
-    def update_particles(self, r, theta, t):
-        for i, (r_i, theta_i) in enumerate(zip(r, theta)):
-            self.particles[i]["r"] = r_i
-            self.particles[i]["theta"] = theta_i
-            self.particles[i]["history"].append(r_i)
-            self.particles[i]["theta_history"].append(theta_i)
+    # Create an array to store the frames
+    frames = []
 
-    def animate(self, show_arrows=False, output_file='animation.gif'):
-        if not self.particles or not self.particles[0]["history"]:
-            print("No particles or frames found. Cannot create animation.")
-            return
+    # Set up the figure and axis
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_xlim(0, width)
+    ax.set_ylim(0, height)
 
-        fig, ax = plt.subplots()
-        ax.set_xlim(0, self.width)
-        ax.set_ylim(0, self.height)
+    for frame in range(n_frames):
+        # Clear the axis
+        ax.clear()
+        ax.set_xlim(0, width)
+        ax.set_ylim(0, height)
 
-        for wall_points in self.walls:
-            ax.add_line(Line2D(wall_points[:, 0], wall_points[:, 1], color='k'))
+        for particle in range(n_particles):
+            # Plot the particle position
+            position = r[frame, particle]
+            heading = theta[frame, particle]
+            ax.plot(position[0], position[1], 'o')
 
-        scatters = [ax.scatter(particle["r"][0], particle["r"][1]) for particle in self.particles]
+            if show_arrows:
+                # Add an arrow to represent the heading
+                dx = np.cos(heading)
+                dy = np.sin(heading)
+                arrow = FancyArrow(position[0], position[1], dx, dy, width=0.1, length_includes_head=True, color='red')
+                ax.add_patch(arrow)
 
-        if show_arrows:
-            for particle in self.particles:
-                arrow = patches.Arrow(particle["r"][0], particle["r"][1],
-                                      np.cos(particle["theta"]), np.sin(particle["theta"]),
-                                      width=0.3, color='C0')
-                self.arrows.append(ax.add_patch(arrow))
+        # Save the frame to the buffer
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png')
+        frames.append(buf.getvalue())
+        buf.close()
 
-        def update(frame):
-            for i, particle in enumerate(self.particles):
-                scatters[i].set_offsets([particle["history"][frame]])
-                if show_arrows:
-                    self.arrows[i].remove()
-                    arrow = patches.Arrow(particle["history"][frame][0], particle["history"][frame][1],
-                                          np.cos(particle["theta_history"][frame][0]), np.sin(particle["theta_history"][frame][0]),
-                                          width=0.3, color=scatters[i].get_facecolor().tolist()[0])
-                    self.arrows[i] = ax.add_patch(arrow)
-
-        num_frames = len(self.particles[0]["history"])
-        ani = FuncAnimation(fig, update, frames=num_frames, interval=100, blit=False)
-
-        ani.save(output_file, writer='imagemagick', fps=15)
-        time.sleep(0.1)
-        plt.close(fig)
+    # Save the frames as an animated GIF
+    images = [Image.open(io.BytesIO(frame)) for frame in frames]
+    images[0].save(gif_filename, save_all=True, append_images=images[1:], loop=0, duration=100)
