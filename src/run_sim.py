@@ -143,13 +143,34 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    wall_positions = jnp.array([
-        [[1.,0.],[0.,1.]],
-        [[1.,0.],[0.,-1.]],
+    
+    # Suppose we have W walls. Walls are parametrized as two (W,2) arrays 
+    # describing their start and end points, with the line between these points
+    # being the "wall". At any given timestep, we determine if a particle is
+    # nearby wall `w_i` parametrized by points `s_i, e_i` using two vectors:
+    # a vector `f_i = (e_i - s_i)/\ell_i` where `\ell_i` is the length of the
+    # wall and given by ||e_i-s_i||, and a normal unit vector `n_i` to the
+    # wall. Suppose a particle is at position r. We describe its position in 
+    # the basis of "along the wall" and "normal from the wall". In particular, 
+    # we compute  `f(r) = (r - s_i) @ f_i` as our distance along the wall, 
+    # normalized so `f(s_i) = 0` and `f(e_i) = ||e_i-s_i|| = \ell_i`. We 
+    # additionally compute `n(r) = (r-s_i) @ n_i` to give our distance from 
+    # the wall. 
+    # 
+    # Suppose our particle has radius R. We consider it as "touching" the wall
+    # when -R < f(r) < \ell_i + R and |n(r)| < R. We model the wall as exerting
+    # a normal force by saying 
+
+
+    wall_starts = jnp.array([
+        [1.,0.],
+        [1.,0.],
+        ])
+    wall_ends = jnp.array([
+        [0.,1.],
+        [0.,-1.],
         ])
 
-    wall_starts = wall_positions[:,0]
-    wall_ends = wall_positions[:,1]
     wall_diffs = wall_ends - wall_starts
     diff_mags = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
     fraction_along_wall_vec = wall_diffs / diff_mags**2
