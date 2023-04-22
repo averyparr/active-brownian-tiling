@@ -134,11 +134,33 @@ def run_sim(
     r = initial_positions.copy()
     theta = initial_heading_angles.copy()
 
-    for _ in trange(num_steps):    
+    # We know that angle reassignment is done as a Poisson process, so the time
+    # between events is distributed as Expo(poissonAngleReassignmentRate).
+    
+    key, rand_key = rand.split(rand_key)
+    time_until_angle_reassignment = rand.exponential(key,(num_particles,),float) / poissonAngleReassignmentRate
+    next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
+    next_reassignment_event = jnp.min(next_reassignment_all_particles)
+
+    for step in trange(num_steps):    
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,dt,v0,translationGamma,translationDiffusion,rotationGamma,rotationDiffusion,omega)
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
-    
+
+        if step == next_reassignment_event:
+            reassign_which_particles = (next_reassignment_all_particles==step)
+            num_reassignments = jnp.count_nonzero(reassign_which_particles)
+            
+            key, rand_key = rand.split(rand_key)
+            new_thetas = rand.uniform(key,(num_reassignments,),float,0.,2*jnp.pi)
+            theta = theta.at[reassign_which_particles].set(new_thetas)
+            
+            key, rand_key = rand.split(rand_key)
+            next_reassignment_of_reassigned_particles = step + (rand.exponential(key,(num_reassignments,),float) / poissonAngleReassignmentRate / dt).astype(jnp.int32)
+            next_reassignment_all_particles = next_reassignment_all_particles.at[reassign_which_particles].set(next_reassignment_of_reassigned_particles)
+
+            next_reassignment_event = jnp.min(next_reassignment_all_particles)
+
     return r, theta
 
 print(run_sim(jnp.zeros((1000,2)),jnp.ones(1000)))
