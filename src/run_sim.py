@@ -128,6 +128,7 @@ def run_sim(
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
+    pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
 
     r_history = []
     theta_history = []
@@ -204,6 +205,10 @@ def run_sim(
             next_reassignment_all_particles = next_reassignment_all_particles.at[reassign_which_particles].set(next_reassignment_of_reassigned_particles)
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
+        
+        if pbc_size is not None:
+            r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
+        
 
     animate_particles(r_history,theta_history,100.,100.,show_arrows=True)
 
