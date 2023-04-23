@@ -85,6 +85,129 @@ def get_derivatives(
     return rand_key, r_dot, theta_dot
 get_derivatives = jit(get_derivatives)
 
+class WallHolder:
+    """
+    Suppose we have W walls. Walls are parametrized as two (W,2) arrays 
+    describing their start and end points, with the line between these points
+    being the "wall". We treat particles as 0-size, and walls as having a
+    thickness Th. At any given timestep, we determine if a particle is nearby
+    to wall `w_i` parametrized by points `s_i,e_i` using two vectors: 
+    a vector `f_i = (e_i - s_i)/||e_i-s_i||`, and a normal unit vector `n_i` 
+    to the wall. Suppose a particle is at position r. We describe its position in 
+    the basis of "along the wall" and "normal from the wall". In particular, 
+    we compute  `f(r) = (r - m_i) @ f_i` as our distance along the wall, where
+    `m_i` is the midpoint `m_i = (e_i+s_i)/2` normalized so `f(s_i) = -0.5` and 
+    `f(e_i) = ||e_i-s_i|| = -0.5`. We additionally compute `n(r) = (r-s_i) @ n_i` 
+    to give our distance from the wall. The particle is in contact with the 
+    wall if abs(f(r)) < 0.5 and abs(n(r)) < Th. 
+
+    If a particle tries to move _through_ a wall and our timestep `dt` is fine
+    enough, then we can catch this motion by checking if (r+dr) is in contact
+    with the wall. If that is the case, we presume that the wall exerts a normal
+    force on the particle just enough to ensure that its final position is not
+    within Th of the wall by setting 
+
+    `r -> r + (Th - (r @ n_i)) n_i`
+    
+    which ensures (r @ n_i) = Th. 
+
+    Because we have many different vectors to encode, it makes good sense to 
+    keep them all in a single class (oh, would that Python have structs). 
+    """
+    def __init__(self, wall_starts:jnp.array, wall_ends:jnp.array) -> None:
+        """
+        Creates a WallHolder object, including computing required midpoint,
+        paralell, and normal vectors. Walls are constructed between 
+        `wall_starts[i]` and `wall_ends[i]`. 
+
+        Parameters
+        ----------
+        wall_starts: jnp.ndarray
+            A (W, 2) arrary encoding the starting points of each wall
+        wall_ends: jnp.ndarray
+            A (W, 2) array encoding the stopping points of each wall. 
+        
+        Returns
+        ----------
+        WallHolder object with all necessary vectors cached. 
+        """
+
+        self.wall_midpoints = (wall_starts + wall_ends)/2.
+        self.wall_starts = wall_starts
+        
+        wall_diffs = wall_ends - wall_starts
+        wall_lengths = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
+
+        self.fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths**2).transpose()
+        rot90_arr = jnp.array([[0,-1],[1,0]])
+        self.distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
+
+        self.wall_thickness = 0.25
+    def correct_for_collisions(self,
+            r: jnp.array,
+            delta_r: jnp.array) -> jnp.array:
+        """
+        Computes the updated value of `r`, taking into account whether
+        any collisions occur. If none do, returns r + delta_r. Ensures
+        that abs(r @ n_i) >= Th for all particles after evolution. 
+        
+        Parameters
+        ----------
+        r: jnp.ndarray
+            Current positions of all particles. (n, 1, 2) Array.
+        delta_r: jnp.ndarray
+            Proposed update to positions of all particles, and
+            should be equal to r_dot * dt. 
+
+        Returns
+        ----------
+        updated_r: jnp.ndarray
+            Updated positions, guaranteed to not collide with any
+            walls. 
+        """
+
+        return WallHolder._jit_correct_for_collisions(
+            r,
+            delta_r,
+            self.wall_midpoints,
+            self.distance_from_wall_vec,
+            self.fraction_along_wall_vec,
+            self.wall_thickness,
+            ) 
+    @jit
+    def _jit_correct_for_collisions(
+            r: jnp.ndarray,
+            delta_r: jnp.ndarray,
+            wall_midpoints: jnp.ndarray,
+            distance_from_wall_vec: jnp.ndarray,
+            fraction_along_wall_vec: jnp.ndarray,
+            wall_thickness: float,
+            ) -> jnp.array:
+        """
+        Helper function for correct_for_collisions. Formatted
+        so that it can be JIT-compiled by JAX. 
+
+        See documentation for WallHelper.correct_for_collisions. 
+        """
+
+        r_dot_normal_wall = jnp.sum((r - wall_midpoints) * distance_from_wall_vec,axis=2)
+        dr_dot_normal_wall = jnp.sum(delta_r * distance_from_wall_vec, axis=2)
+        distances_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
+        is_close_to_wall_normal = distances_from_walls < wall_thickness
+
+        r = r + delta_r
+
+        is_within_wall_parallel = jnp.abs(jnp.sum((r - wall_midpoints) * fraction_along_wall_vec,axis=2)) < 0.5
+
+        hits_walls = is_within_wall_parallel & is_close_to_wall_normal
+
+        wall_correction = jnp.sign(dr_dot_normal_wall) * (distances_from_walls-(wall_thickness))
+        wall_correction = jnp.expand_dims(wall_correction * hits_walls,2) * distance_from_wall_vec
+        wall_correction = jnp.expand_dims(jnp.sum(wall_correction,axis=1),1)
+
+        return r+wall_correction
+
+
 def run_sim(
         initial_positions: jnp.ndarray, 
         initial_heading_angles: jnp.ndarray,
@@ -118,18 +241,17 @@ def run_sim(
     and `\omega` is a natural rotation rate. These particles are also assumed
     to completely re-assign their heading on a Unif[0,2`\pi`] distribution with
     Poisson-like dynamics, parametrized by `p` the rate of transition per unit
-    time. 
-
-
-    Our particles are taken to be spheres of radius `R = 1`. They will interact
-    with walls parametrized by a sequence of points. 
+    time.
     """
 
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
+    wall_starts =                       sim_params.get("wall_starts", None)
+    wall_ends =                         sim_params.get("wall_ends", None)
     do_animation =                      sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
     pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
+    assert ((wall_starts is None and wall_ends is None) or (wall_starts.shape==wall_ends.shape))
 
     r_history = []
     theta_history = []
@@ -150,44 +272,19 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    
-    # Suppose we have W walls. Walls are parametrized as two (W,2) arrays 
-    # describing their start and end points, with the line between these points
-    # being the "wall". At any given timestep, we determine if a particle is
-    # nearby wall `w_i` parametrized by points `s_i, e_i` using two vectors:
-    # a vector `f_i = (e_i - s_i)/\ell_i` where `\ell_i` is the length of the
-    # wall and given by ||e_i-s_i||, and a normal unit vector `n_i` to the
-    # wall. Suppose a particle is at position r. We describe its position in 
-    # the basis of "along the wall" and "normal from the wall". In particular, 
-    # we compute  `f(r) = (r - s_i) @ f_i` as our distance along the wall, 
-    # normalized so `f(s_i) = 0` and `f(e_i) = ||e_i-s_i|| = \ell_i`. We 
-    # additionally compute `n(r) = (r-s_i) @ n_i` to give our distance from 
-    # the wall. 
-    # 
-    # Suppose our particle has radius R. We consider it as "touching" the wall
-    # when -R < f(r) < \ell_i + R and |n(r)| < R. We model the wall as exerting
-    # a normal force by saying 
+    if wall_starts is not None:
+        walls = WallHolder(wall_starts,wall_ends)
 
-
-    wall_starts = jnp.array([
-        [1.,0.],
-        [1.,0.],
-        ])
-    wall_ends = jnp.array([
-        [0.,1.],
-        [0.,-1.],
-        ])
-
-    wall_diffs = wall_ends - wall_starts
-    diff_mags = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
-    fraction_along_wall_vec = wall_diffs / diff_mags**2
-    rot90_arr = jnp.array([[0,-1],[1,0]])
-    distance_from_wall_vec = rot90_arr @ (wall_diffs / diff_mags)
-
-    for step in trange(num_steps):    
+    for step in trange(num_steps):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
-        r = r + r_dot * dt
-        theta = theta + theta_dot * dt
+        delta_r = r_dot * dt
+        delta_theta = theta_dot * dt
+        
+        if wall_starts is not None:
+            r = walls.correct_for_collisions(r,delta_r)
+        else:
+            r = r + delta_r
+        theta = theta + delta_theta
 
         if step % 10 == 0 and do_animation:
             r_history.append(r.squeeze())
