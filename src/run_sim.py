@@ -128,6 +128,7 @@ def run_sim(
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
+    do_animation =                      sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
     pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
 
     r_history = []
@@ -188,7 +189,7 @@ def run_sim(
         r = r + r_dot * dt
         theta = theta + theta_dot * dt
 
-        if step % 10 == 0:
+        if step % 10 == 0 and do_animation:
             r_history.append(r.squeeze())
             theta_history.append(theta.squeeze())
 
@@ -210,7 +211,8 @@ def run_sim(
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
         
 
-    animate_particles(r_history,theta_history,100.,100.,show_arrows=True)
+    if do_animation:
+        animate_particles(r_history,theta_history,100.,100.,show_arrows=True)
 
     return r, theta
 
