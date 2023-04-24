@@ -143,7 +143,7 @@ class WallHolder:
         rot90_arr = jnp.array([[0,-1],[1,0]])
         self.distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
 
-        self.wall_thickness = 0.25
+        self.wall_thickness = 1.
     def correct_for_collisions(self,
             r: jnp.ndarray,
             delta_r: jnp.ndarray) -> jnp.ndarray:
@@ -261,6 +261,7 @@ def run_sim(
     rand_key = initial_random_key
 
     num_particles = initial_heading_angles.shape[0]
+    assert initial_positions.shape == (num_particles,2)
     num_steps = int(total_time / dt)
 
     r = initial_positions.copy().reshape((num_particles,1,2))
@@ -288,7 +289,7 @@ def run_sim(
             r = r + delta_r
         theta = theta + delta_theta
 
-        if step % 40 == 0 and return_history:
+        if step % 10 == 0 and return_history:
             r_history.append(r.squeeze())
             theta_history.append(theta.squeeze())
 
