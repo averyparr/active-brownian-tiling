@@ -1,6 +1,7 @@
 from typing import Tuple
 
-import jax.numpy as jnp
+# import jax.numpy as jnp
+import numpy as jnp
 from jax import random as rand
 from jax import jit
 
@@ -10,9 +11,13 @@ from tqdm import trange
 
 from constants import *
 
-initial_random_key = rand.PRNGKey(678912390)
+from multiprocessing.pool import Pool
+
 
 from visualization import animate_particles
+
+initial_random_key = rand.PRNGKey(678912390)
+global total_time
 
 def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]:
     r"""
@@ -138,12 +143,13 @@ class WallHolder:
         
         wall_diffs = wall_ends - wall_starts
         wall_lengths = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
+        self.wall_thickness = 1.
+        self.max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + self.wall_thickness
 
-        self.fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths**2).transpose()
+        self.fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
         rot90_arr = jnp.array([[0,-1],[1,0]])
         self.distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
 
-        self.wall_thickness = 1.
     def correct_for_collisions(self,
             r: jnp.ndarray,
             delta_r: jnp.ndarray) -> jnp.ndarray:
@@ -171,6 +177,7 @@ class WallHolder:
             r,
             delta_r,
             self.wall_midpoints,
+            self.max_horizontal_distance_from_wall_center,
             self.distance_from_wall_vec,
             self.fraction_along_wall_vec,
             self.wall_thickness,
@@ -180,6 +187,7 @@ class WallHolder:
             r: jnp.ndarray,
             delta_r: jnp.ndarray,
             wall_midpoints: jnp.ndarray,
+            max_horizontal_distance_from_wall_center: jnp.ndarray,
             distance_from_wall_vec: jnp.ndarray,
             fraction_along_wall_vec: jnp.ndarray,
             wall_thickness: float,
@@ -198,7 +206,7 @@ class WallHolder:
 
         r = r + delta_r
 
-        is_within_wall_parallel = jnp.abs(jnp.sum((r - wall_midpoints) * fraction_along_wall_vec,axis=2)) < 0.5
+        is_within_wall_parallel = jnp.abs(jnp.sum((r - wall_midpoints) * fraction_along_wall_vec,axis=2)) < max_horizontal_distance_from_wall_center
 
         hits_walls = is_within_wall_parallel & is_close_to_wall_normal
 
@@ -279,6 +287,10 @@ def run_sim(
         walls = WallHolder(wall_starts,wall_ends)
 
     for step in trange(num_steps):
+    # t = 0.
+    # step = 0
+    # while t < total_time:
+
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
         delta_theta = theta_dot * dt
@@ -289,7 +301,8 @@ def run_sim(
             r = r + delta_r
         theta = theta + delta_theta
 
-        if step % 10 == 0 and return_history:
+
+        if step % 40 == 0 and return_history:
             r_history.append(r.squeeze())
             theta_history.append(theta.squeeze())
 
@@ -309,42 +322,72 @@ def run_sim(
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
-    
+
     if return_history:
         return (jnp.array(r_history), jnp.array(theta_history))
     else:
         return r, theta
 
+def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
+    chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
+
+    wall_starts = jnp.append((box_size/2)*BOUNDING_BOX_STARTS,chevron_starts,axis=0)
+    wall_ends = jnp.append((box_size/2)*BOUNDING_BOX_ENDS,chevron_ends,axis=0)
+
+    sim_params = {
+        "total_time": total_time,
+        "pbc_size": box_size,
+        "return_history": True,
+        "do_animation": True,
+        "wall_starts": wall_starts,
+        "wall_ends": wall_ends,
+    }
+
+    nparticles = 10000
+    initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-box_size/2.,box_size/2.)
+    initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
+
+    r_history,theta_history = run_sim(initial_positions,initial_headings,sim_params)
+    
+    plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
+    plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
+    plt.legend()
+
+    plt.savefig("Accumulation in bottom")
+    plt.figure()
+
+    do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+    if do_animation:
+        animate_particles(r_history,theta_history,jnp.array([wall_starts,wall_ends]), 1.25*box_size,1.25*box_size)
+
+    final_r = jnp.mean(r_history[-100:],axis=0)
+
+    return (jnp.tanh(-10*final_r.squeeze()[:,1])+1)/2 @ jnp.ones(nparticles) / nparticles # very close to (final_r.squeeze()[:,1] < 0.) @ jnp.ones(nparticles) but continuous
+
+from jax import value_and_grad
+
+total_time = 400.
+sim_grad = value_and_grad(simulate_with_walls,argnums=(0,1))
+theta_0 = 2*jnp.pi/3
+fraction_0 = 0.05
+
+# learning_rate = 0.5
+# theta = theta_0
+# fraction = fraction_0
+# for round in range(100):
+#     val,(grad_theta, grad_fraction) = sim_grad(theta, fraction)
+#     theta += learning_rate * grad_theta
+#     fraction += learning_rate * grad_fraction
+
+#     print(val,theta/jnp.pi,fraction,grad_theta,grad_fraction)
+
+# for theta in jnp.pi*jnp.linspace(0.6,0.8,51):
+#     fraction = simulate_with_walls(theta,0.1)
+#     print(fraction,theta/jnp.pi)
+
+for num_walls in range(5,6):
+    lower_fraction = simulate_with_walls(0.7 * jnp.pi, 0.05, num_walls, 80.,)
+    print(lower_fraction,num_walls)
 
 
-chevron_starts, chevron_ends = chevron_walls(5,80.,2*jnp.pi/3,0.05)
 
-wall_starts = jnp.append(BOUNDING_BOX_STARTS,chevron_starts,axis=0)
-wall_ends = jnp.append(BOUNDING_BOX_ENDS,chevron_ends,axis=0)
-
-sim_params = {
-    "total_time": 2000.,
-    "return_history": True,
-    "wall_starts": wall_starts,
-    "wall_ends": wall_ends,
-}
-
-nparticles = 10000
-initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-40.,40.)
-initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
-
-r_history,theta_history = run_sim(initial_positions,initial_headings,sim_params)
-
-
-
-plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
-plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
-plt.legend()
-
-plt.savefig("Accumulation in bottom")
-plt.figure()
-
-
-do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
-if do_animation:
-    animate_particles(r_history,theta_history,jnp.array([wall_starts,wall_ends]), 100.,100.)

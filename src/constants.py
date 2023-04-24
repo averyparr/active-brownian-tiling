@@ -16,13 +16,13 @@ DEFAULT_DO_ANIMATION = True
 
 DEFAULT_PERIODIC_BOUNDARY_SIZE = None
 
-BOUNDING_BOX_STARTS = 40.*jnp.array([
+BOUNDING_BOX_STARTS = jnp.array([
     [1.,1.],
     [-1.,1.],
     [-1.,-1.],
     [1.,-1.],
 ])
-BOUNDING_BOX_ENDS = 40.*jnp.array([
+BOUNDING_BOX_ENDS = jnp.array([
     [-1.,1.],
     [-1.,-1.],
     [1.,-1.],
@@ -37,11 +37,11 @@ def chevron_walls(
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
     center_positions = jnp.linspace(-box_size/2,box_size/2,num_chevrons)
 
-    chevron_width = (1-gap_fraction) * box_size / num_chevrons
-    half_wall_length = (chevron_width/2) / jnp.sin(chevron_angle/2)
+    half_chevron_width = (1-gap_fraction) * box_size / (2*num_chevrons-2)
+    half_wall_length = (half_chevron_width) / jnp.sin(chevron_angle/2)
     chevron_height = half_wall_length * jnp.cos(chevron_angle/2)
     
     start_positions = [[pos_x, chevron_height/2] for pos_x in center_positions] + [[pos_x, chevron_height/2] for pos_x in center_positions]
-    end_positions = [[pos_x + chevron_width/2, -chevron_height/2] for pos_x in center_positions] + [[pos_x - chevron_width/2, -chevron_height/2] for pos_x in center_positions]
+    end_positions = [[pos_x + half_chevron_width, -chevron_height/2] for pos_x in center_positions] + [[pos_x - half_chevron_width, -chevron_height/2] for pos_x in center_positions]
 
     return jnp.array(start_positions),jnp.array(end_positions)
