@@ -4,6 +4,7 @@ import jax.numpy as jnp
 from jax import random as rand
 from jax import jit
 
+import matplotlib.pyplot as plt
 
 from tqdm import trange
 
@@ -36,7 +37,7 @@ def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: f
     return new_key, rand.normal(key, (num_particles,), float) * jnp.sqrt(2*rotationDiffusion / dt)
 rotation_noise = jit(rotation_noise,static_argnums=(1,2,3))
 
-def translation_noise(rand_key, num_particles: int, translationDiffusion: float, dt: float) -> Tuple[jnp.array,jnp.array]: 
+def translation_noise(rand_key, num_particles: int, translationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]: 
     r"""
     Computes `\delta`-correlated noise used to cause drift in `r(t)`. 
     Because we work in discrete-time, we must ensure that 
@@ -249,8 +250,9 @@ def run_sim(
     poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
     wall_starts =                       sim_params.get("wall_starts", None)
     wall_ends =                         sim_params.get("wall_ends", None)
-    do_animation =                      sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+    return_history =                    sim_params.get("return_history", True)
     pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
+    
     assert ((wall_starts is None and wall_ends is None) or (wall_starts.shape==wall_ends.shape))
 
     r_history = []
@@ -286,7 +288,7 @@ def run_sim(
             r = r + delta_r
         theta = theta + delta_theta
 
-        if step % 10 == 0 and do_animation:
+        if step % 40 == 0 and return_history:
             r_history.append(r.squeeze())
             theta_history.append(theta.squeeze())
 
@@ -306,16 +308,42 @@ def run_sim(
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
-        
+    
+    if return_history:
+        return (jnp.array(r_history), jnp.array(theta_history))
+    else:
+        return r, theta
 
-    if do_animation:
-        animate_particles(r_history,theta_history,100.,100.,show_arrows=True)
 
-    return r, theta
 
-sim_params = {"total_time": 100.}
+chevron_starts, chevron_ends = chevron_walls(5,80.,2*jnp.pi/3,0.05)
 
-resulting_r,resulting_theta = run_sim(jnp.zeros((10000,2)),jnp.ones(10000),sim_params)
+wall_starts = jnp.append(BOUNDING_BOX_STARTS,chevron_starts,axis=0)
+wall_ends = jnp.append(BOUNDING_BOX_ENDS,chevron_ends,axis=0)
 
-print(resulting_r)
-print(resulting_theta)
+sim_params = {
+    "total_time": 2000.,
+    "return_history": True,
+    "wall_starts": wall_starts,
+    "wall_ends": wall_ends,
+}
+
+nparticles = 10000
+initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-40.,40.)
+initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
+
+r_history,theta_history = run_sim(initial_positions,initial_headings,sim_params)
+
+
+
+plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
+plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
+plt.legend()
+
+plt.savefig("Accumulation in bottom")
+plt.figure()
+
+
+do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+if do_animation:
+    animate_particles(r_history,theta_history,jnp.array([wall_starts,wall_ends]), 100.,100.)
