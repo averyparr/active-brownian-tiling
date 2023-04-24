@@ -10,7 +10,15 @@ import io
 
 from constants import DEFAULT_GIF_FPS
 
-def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: float, show_arrows: bool=False, gif_filename: str="particles.gif"):
+def animate_particles(
+        r: jnp.ndarray, 
+        theta: jnp.ndarray, 
+        wall_positions: jnp.ndarray, 
+        width: float, 
+        height: float, 
+        show_arrows: bool=False,
+        gif_filename: str="particles.gif"
+        ):
     """
     Create an animated GIF of particles with their positions in every frame and optionally display arrows
     representing their headings at each frame.
@@ -21,6 +29,9 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
         A 3D array of particle positions with shape (n_frames, n_particles, 2).
     theta : jnp.ndarray
         A 2D array of particle headings with shape (n_frames, n_particles).
+    wall_positions : jnp.ndarray
+        A 3D arary of wall positions with shape (2, W, 2). wall_positions[0] is 
+        start positions and wall_positions[1] is end positions.
     width : float
         The width of the region to be animated.
     height : float
@@ -65,6 +76,9 @@ def animate_particles(r: jnp.ndarray, theta: jnp.ndarray, width: float, height: 
             headings = np.column_stack((np.cos(theta[frame]), np.sin(theta[frame])))
             # Plot the arrows using quiver
             ax.quiver(positions[:, 0], positions[:, 1], headings[:, 0], headings[:, 1], color='red', angles='xy', scale_units='xy', scale=1)
+        
+        for w1, w2 in zip(*wall_positions):
+            ax.plot([w1[0],w2[0]], [w1[1],w2[1]],c="k")
 
         # Save the frame to the buffer
         buf = io.BytesIO()
