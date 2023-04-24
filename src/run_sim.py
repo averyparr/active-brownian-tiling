@@ -13,7 +13,7 @@ initial_random_key = rand.PRNGKey(678912390)
 
 from visualization import animate_particles
 
-def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.array]:
+def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]:
     r"""
     Computes `\delta`-correlated noise used to cause drift in `\theta(t)`.
     Becaus we work in discrete-time, we must ensure that 
@@ -114,7 +114,7 @@ class WallHolder:
     Because we have many different vectors to encode, it makes good sense to 
     keep them all in a single class (oh, would that Python have structs). 
     """
-    def __init__(self, wall_starts:jnp.array, wall_ends:jnp.array) -> None:
+    def __init__(self, wall_starts:jnp.ndarray, wall_ends:jnp.ndarray) -> None:
         """
         Creates a WallHolder object, including computing required midpoint,
         paralell, and normal vectors. Walls are constructed between 
@@ -144,8 +144,8 @@ class WallHolder:
 
         self.wall_thickness = 0.25
     def correct_for_collisions(self,
-            r: jnp.array,
-            delta_r: jnp.array) -> jnp.array:
+            r: jnp.ndarray,
+            delta_r: jnp.ndarray) -> jnp.ndarray:
         """
         Computes the updated value of `r`, taking into account whether
         any collisions occur. If none do, returns r + delta_r. Ensures
@@ -182,7 +182,7 @@ class WallHolder:
             distance_from_wall_vec: jnp.ndarray,
             fraction_along_wall_vec: jnp.ndarray,
             wall_thickness: float,
-            ) -> jnp.array:
+            ) -> jnp.ndarray:
         """
         Helper function for correct_for_collisions. Formatted
         so that it can be JIT-compiled by JAX. 
