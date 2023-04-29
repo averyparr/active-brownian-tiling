@@ -347,8 +347,8 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
 
-    wall_starts = jnp.append((box_size/2)*BOUNDING_BOX_STARTS,chevron_starts,axis=0)
-    wall_ends = jnp.append((box_size/2)*BOUNDING_BOX_ENDS,chevron_ends,axis=0)
+    wall_starts = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_STARTS,chevron_starts,axis=0)[:4]])/1.5
+    wall_ends = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_ENDS,chevron_ends,axis=0)[:4]])/1.5
 
     sim_params = {
         "total_time": total_time,
