@@ -48,6 +48,7 @@ def animate_particles(
     """
     r = np.asarray(r)
     theta = np.asarray(theta)
+    wall_history = np.asarray(wall_history)
     
     n_frames, n_particles, _ = r.shape
 
