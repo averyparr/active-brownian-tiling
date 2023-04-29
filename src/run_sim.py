@@ -122,7 +122,7 @@ class WallHolder:
     Because we have many different vectors to encode, it makes good sense to 
     keep them all in a single class (oh, would that Python have structs). 
     """
-    def __init__(self, wall_starts:jnp.ndarray, wall_ends:jnp.ndarray) -> None:
+    def __init__(self, wall_starts:jnp.ndarray, wall_ends:jnp.ndarray, wall_fluid_drag_coefficient: float = float("inf")) -> None:
         """
         Creates a WallHolder object, including computing required midpoint,
         paralell, and normal vectors. Walls are constructed between 
@@ -134,23 +134,61 @@ class WallHolder:
             A (W, 2) arrary encoding the starting points of each wall
         wall_ends: jnp.ndarray
             A (W, 2) array encoding the stopping points of each wall. 
+        wall_fluid_drag_coefficient: float
+            Drag coefficient used to convert velocities and forces. 
+            Often called `\gamma`. 
         
         Returns
         ----------
         WallHolder object with all necessary vectors cached. 
         """
 
-        self.wall_midpoints = (wall_starts + wall_ends)/2.
-        self.wall_starts = wall_starts
-        
-        wall_diffs = wall_ends - wall_starts
-        wall_lengths = jnp.apply_along_axis(jnp.linalg.norm,1,wall_diffs)
-        self.wall_thickness = 1.
-        self.max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + self.wall_thickness
 
-        self.fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
-        rot90_arr = jnp.array([[0,-1],[1,0]])
-        self.distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
+        self.wall_starts = wall_starts.copy()
+        self.wall_ends = wall_ends.copy()
+
+        self.fluid_drag = wall_fluid_drag_coefficient
+
+    def update_position_based_on_equal_opposite_forces(self,wall_correction_to_dr: jnp.ndarray, particle_gamma: float) -> None:
+        """
+        Translates the entire WallHolder according to the total amount of impulse
+        it has experienced in a given timestep. Suppose each particle i experiences 
+        forces `f_i` from non-wall sources in time `dt`. Due to its fluid drag, it 
+        experiences velocity `f_i/\gamma_i` and moves by `f_i dt/\gamma_i`. Suppose
+        it collides with the wall for `d\tau <= dt` time. The wall exerts normal
+        force `n_i` and so leads to a correction of `c_i = n_i d\tau/\gamma_i` in 
+        the particle's position. The wall experiences a force `-n_i` for `d\tau` 
+        and has fluid drag `\gamma_w`. It then moves by `-n_id\tau/\gamma_w`. We 
+        can express this as 
+
+        `wall_correction = -n_i d\tau/\gamma_w = -c_i \gamma_i / \gamma_w`
+
+
+        Parameters
+        ----------
+        wall_correction_to_dr: jnp.ndarray
+            (W,2) Array specifying our wall's modificaiton to particles' position 
+            changes. wall_correction_to_dr[i,0] = `c_i`. 
+        particle_gamma: float
+            Specifies the fluid drag coefficient of the particles. 
+
+
+
+
+        ROTATIONAL / TORQUE EFFECTS NOT YET IMPLEMENTED
+        """
+
+        com_translation = -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / self.fluid_drag
+        self.wall_starts += com_translation
+        self.wall_ends += com_translation
+
+        
+    @jit
+    def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
+        return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
+        
+
+
 
     def correct_for_collisions(self,
             r: jnp.ndarray,
@@ -276,6 +314,7 @@ def run_sim(
 
     r_history = []
     theta_history = []
+    walls_history = []
 
     rand_key = initial_random_key
 
@@ -294,8 +333,7 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    if wall_starts is not None:
-        walls = WallHolder(wall_starts,wall_ends)
+    # walls = WallHolder(wall_starts,wall_ends,wall_fluid_drag_coefficient=10)
 
     for step in trange(num_steps):
         rand_key, r, theta, wall_starts, wall_ends = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_starts, wall_ends, pbc_size)
@@ -303,6 +341,7 @@ def run_sim(
         if step % int(50/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
+            walls_history.append([wall_starts.copy(),wall_ends.copy()])
 
         if step >= next_reassignment_event:
             reassign_which_particles = (step>=next_reassignment_all_particles)
@@ -325,7 +364,8 @@ def run_sim(
 
 @jit
 def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
-        
+    particle_gamma = sim_params.get("translationGamma", DEFAULT_TRANSLATION_GAMMA)
+    wall_fluid_drag_list = sim_params.get("wallFluidDrag", [DEFAULT_WALL_GAMMA]*len(wall_starts))
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
@@ -334,7 +374,12 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
         if wall_starts is not None:
             for wall_indx, fluid_drag in enumerate(wall_fluid_drag_list):
                 correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
-        
+                wall_com_adjustment = jax.lax.clamp(-2.*dt,WallHolder._jit_update_wall_positions(correction,particle_gamma,fluid_drag),2.*dt)
+
+                wall_starts = wall_starts.at[wall_indx].set(wall_starts[wall_indx] + wall_com_adjustment)
+                wall_ends = wall_ends.at[wall_indx].set(wall_ends[wall_indx] + wall_com_adjustment)
+
+                correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
                 delta_r += correction
         r += delta_r
         theta = theta + delta_theta
@@ -363,7 +408,7 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
     initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-box_size/2.,box_size/2.)
     initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
 
-    r_history,theta_history = run_sim(initial_positions,initial_headings,sim_params)
+    r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
     
     plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
     plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
@@ -374,7 +419,7 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
 
     do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
     if do_animation:
-        animate_particles(r_history,theta_history,jnp.array([wall_starts,wall_ends]), 1.25*box_size,1.25*box_size)
+        animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size)
 
     final_r = jnp.mean(r_history[-100:],axis=0)
 
