@@ -63,7 +63,7 @@ def translation_noise(rand_key, num_particles: int, translationDiffusion: float,
 
     key, new_key = rand.split(rand_key)
 
-    return new_key, rand.normal(key, (num_particles,1,2), float) * jnp.sqrt(2*translationDiffusion / dt)
+    return new_key, rand.normal(key, (num_particles,2), float) * jnp.sqrt(2*translationDiffusion / dt)
 translation_noise = jit(translation_noise,static_argnums=(1,2,3))
 
 def get_derivatives(
@@ -83,7 +83,7 @@ def get_derivatives(
     rotationDiffusion =                 sim_params.get("rotationDiffusion",DEFAULT_ROTATION_DIFFUSION)
     omega =                             sim_params.get("omega",DEFAULT_OMEGA)
 
-    heading_vector = jnp.array([[jnp.cos(theta),jnp.sin(theta)]]).transpose([2,0,1])
+    heading_vector = jnp.array([jnp.cos(theta),jnp.sin(theta)]).transpose()
     rand_key, zeta = translation_noise(rand_key,num_particles,translationDiffusion,dt)
     r_dot = v0 * heading_vector + zeta/translationGamma # should have shape (n,1,2).
 
@@ -170,29 +170,23 @@ class WallHolder:
 
         Returns
         ----------
-        updated_r: jnp.ndarray
-            Updated positions, guaranteed to not collide with any
-            walls. 
+        correction: jnp.ndarray
+            (W,2) Correction to delta_r that should ensure that no 
+            final positions collide with the walls in this WallHolder. 
         """
 
-        return WallHolder._jit_correct_for_collisions(
+        return WallHolder._jit_get_collision_correction(
             r,
             delta_r,
-            self.wall_midpoints,
-            self.max_horizontal_distance_from_wall_center,
-            self.distance_from_wall_vec,
-            self.fraction_along_wall_vec,
-            self.wall_thickness,
+            self.wall_starts,
+            self.wall_ends,
             ) 
     @jit
-    def _jit_correct_for_collisions(
+    def _jit_get_collision_correction(
             r: jnp.ndarray,
             delta_r: jnp.ndarray,
-            wall_midpoints: jnp.ndarray,
-            max_horizontal_distance_from_wall_center: jnp.ndarray,
-            distance_from_wall_vec: jnp.ndarray,
-            fraction_along_wall_vec: jnp.ndarray,
-            wall_thickness: float,
+            wall_starts: jnp.ndarray,
+            wall_ends: jnp.ndarray,
             ) -> jnp.ndarray:
         """
         Helper function for correct_for_collisions. Formatted
@@ -201,22 +195,37 @@ class WallHolder:
         See documentation for WallHelper.correct_for_collisions. 
         """
 
-        r_dot_normal_wall = jnp.sum((r - wall_midpoints) * distance_from_wall_vec,axis=2)
-        dr_dot_normal_wall = jnp.sum(delta_r * distance_from_wall_vec, axis=2)
-        distances_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
-        is_close_to_wall_normal = distances_from_walls < wall_thickness
+        wall_midpoints = (wall_starts + wall_ends) / 2.
+        
+        wall_diffs = wall_ends - wall_starts
+        wall_lengths = jnp.linalg.norm(wall_diffs, axis=1)
+        wall_thickness = 3.
+        max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + wall_thickness
 
-        r = r + delta_r
+        fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
+        rot90_arr = jnp.array([[0, -1], [1, 0]])
+        distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
 
-        is_within_wall_parallel = jnp.abs(jnp.sum((r - wall_midpoints) * fraction_along_wall_vec,axis=2)) < max_horizontal_distance_from_wall_center
+        r_relative_to_wall_starts = r[:,None,:] - wall_midpoints
+
+        r_dot_normal_wall = jnp.sum(r_relative_to_wall_starts * distance_from_wall_vec,axis=-1)
+        r_dot_horizontal_wall = jnp.sum(r_relative_to_wall_starts * fraction_along_wall_vec,axis=2)
+
+        dr_dot_normal_wall = jnp.sum(delta_r[:,None,:] * distance_from_wall_vec, axis=-1)
+
+        normal_dist_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
+
+        is_within_wall_parallel = jnp.abs(r_dot_horizontal_wall) < max_horizontal_distance_from_wall_center
+        is_close_to_wall_normal = normal_dist_from_walls < wall_thickness
+
 
         hits_walls = is_within_wall_parallel & is_close_to_wall_normal
 
-        wall_correction = jnp.sign(dr_dot_normal_wall) * (distances_from_walls-(wall_thickness))
-        wall_correction = jnp.expand_dims(wall_correction * hits_walls,2) * distance_from_wall_vec
-        wall_correction = jnp.expand_dims(jnp.sum(wall_correction,axis=1),1)
+        wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
+        wall_correction = (wall_correction * hits_walls)[:,:,None] * distance_from_wall_vec
+        wall_correction = jnp.sum(wall_correction,axis=1)
 
-        return r+wall_correction
+        return wall_correction
 
 
 def run_sim(
