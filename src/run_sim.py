@@ -1,7 +1,7 @@
 from typing import Tuple
 
 # import jax.numpy as jnp
-import numpy as jnp
+import jax.numpy as jnp
 from jax import random as rand
 from jax import jit
 
