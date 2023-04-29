@@ -283,7 +283,7 @@ def run_sim(
     assert initial_positions.shape == (num_particles,2)
     num_steps = int(total_time / dt/MANY)
 
-    r = initial_positions.copy().reshape((num_particles,1,2))
+    r = initial_positions.copy()
     theta = initial_heading_angles.copy()
 
     # We know that angle reassignment is done as a Poisson process, so the time
