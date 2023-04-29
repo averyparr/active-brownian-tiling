@@ -16,6 +16,8 @@ from multiprocessing.pool import Pool
 
 from visualization import animate_particles
 
+MANY = 50
+
 initial_random_key = rand.PRNGKey(678912390)
 global total_time
 
@@ -270,7 +272,7 @@ def run_sim(
 
     num_particles = initial_heading_angles.shape[0]
     assert initial_positions.shape == (num_particles,2)
-    num_steps = int(total_time / dt)
+    num_steps = int(total_time / dt/MANY)
 
     r = initial_positions.copy().reshape((num_particles,1,2))
     theta = initial_heading_angles.copy()
@@ -287,27 +289,14 @@ def run_sim(
         walls = WallHolder(wall_starts,wall_ends)
 
     for step in trange(num_steps):
-    # t = 0.
-    # step = 0
-    # while t < total_time:
+        rand_key, r, theta, wall_starts, wall_ends = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_starts, wall_ends, pbc_size)
 
-        rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
-        delta_r = r_dot * dt
-        delta_theta = theta_dot * dt
-        
-        if wall_starts is not None:
-            r = walls.correct_for_collisions(r,delta_r)
-        else:
-            r = r + delta_r
-        theta = theta + delta_theta
+        if step % int(50/MANY) == 0 and return_history:
+            r_history.append(r)
+            theta_history.append(theta)
 
-
-        if step % 40 == 0 and return_history:
-            r_history.append(r.squeeze())
-            theta_history.append(theta.squeeze())
-
-        if step == next_reassignment_event:
-            reassign_which_particles = (next_reassignment_all_particles==step)
+        if step >= next_reassignment_event:
+            reassign_which_particles = (step>=next_reassignment_all_particles)
             num_reassignments = jnp.count_nonzero(reassign_which_particles)
             
             key, rand_key = rand.split(rand_key)
@@ -319,14 +308,32 @@ def run_sim(
             next_reassignment_all_particles = next_reassignment_all_particles.at[reassign_which_particles].set(next_reassignment_of_reassigned_particles)
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
+
+    if return_history:
+        return (jnp.array(r_history), jnp.array(theta_history),jnp.array(walls_history))
+    else:
+        return r, theta, None
+
+@jit
+def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
+        
+    for sub_step in range(MANY):
+        rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
+        delta_r = r_dot * dt
+        delta_theta = theta_dot * dt
+        
+        if wall_starts is not None:
+            for wall_indx, fluid_drag in enumerate(wall_fluid_drag_list):
+                correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+        
+                delta_r += correction
+        r += delta_r
+        theta = theta + delta_theta
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
+    return rand_key, r, theta, wall_starts, wall_ends
 
-    if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history))
-    else:
-        return r, theta
 
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
