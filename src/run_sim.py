@@ -1,4 +1,5 @@
 from typing import Tuple
+import jax
 
 # import jax.numpy as jnp
 import jax.numpy as jnp
@@ -395,21 +396,33 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
     wall_starts = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_STARTS,chevron_starts,axis=0)[:4]])/1.5
     wall_ends = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_ENDS,chevron_ends,axis=0)[:4]])/1.5
 
+    x_offset = 0.3
+
+    wall_starts = jnp.array([[
+        (box_size/2) * jnp.array([-1+x_offset,-0.5]),
+        (box_size/2) * jnp.array([1+x_offset,0]),
+        (box_size/2) * jnp.array([-1+x_offset,0.5]),
+    ]])
+    wall_ends = jnp.array([[
+        (box_size/2) * jnp.array([-1+x_offset,0.5]),
+        (box_size/2) * jnp.array([-1+x_offset,-0.5]),
+        (box_size/2) * jnp.array([1+x_offset,0]),
+    ]]) 
+
     sim_params = {
         "total_time": total_time,
-        "pbc_size": box_size,
+        "pbc_size": box_size*1000,
         "return_history": True,
         "do_animation": True,
         "wall_starts": wall_starts,
         "wall_ends": wall_ends,
     }
-
-    nparticles = 10000
-    initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-box_size/2.,box_size/2.)
+    initial_positions = jnp.array([0.7,0.1])*rand.uniform(initial_random_key,(nparticles,2),float,-0.9*box_size/2.,0.9*box_size/2.) * 0
     initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
 
     r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
     
+    plt.figure()
     plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
     plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
     plt.legend()
@@ -428,27 +441,16 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
 from jax import value_and_grad
 
 total_time = 400.
+nparticles = 1000
 sim_grad = value_and_grad(simulate_with_walls,argnums=(0,1))
-theta_0 = 2*jnp.pi/3
-fraction_0 = 0.05
+theta_0 = 0.7*jnp.pi
+fraction_0 = 0.4
+num_walls = 10
+box_size = 100
 
-# learning_rate = 0.5
-# theta = theta_0
-# fraction = fraction_0
-# for round in range(100):
-#     val,(grad_theta, grad_fraction) = sim_grad(theta, fraction)
-#     theta += learning_rate * grad_theta
-#     fraction += learning_rate * grad_fraction
+# for _ in range(10):
+#     sim_grad(theta_0,fraction_0,num_walls,box_size)
 
-#     print(val,theta/jnp.pi,fraction,grad_theta,grad_fraction)
-
-# for theta in jnp.pi*jnp.linspace(0.6,0.8,51):
-#     fraction = simulate_with_walls(theta,0.1)
-#     print(fraction,theta/jnp.pi)
-
-for num_walls in range(5,6):
-    lower_fraction = simulate_with_walls(0.7 * jnp.pi, 0.05, num_walls, 80.,)
-    print(lower_fraction,num_walls)
-
-
-
+for _ in range(1):
+    lower_fraction = simulate_with_walls(theta_0,fraction_0,num_walls,box_size)
+    print(lower_fraction)
