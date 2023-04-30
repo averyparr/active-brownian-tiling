@@ -444,7 +444,7 @@ def get_initial_fill_shape(
     return starting_positions,starting_angles
 
 
-def simulate_spike(box_size: float = 80.):
+def simulate_spike(box_size: float = 80., sim_params: dict = {}):
     x_offset = 0.1
     half_height = 0.5
     spike_shape = (box_size/2) * jnp.array([
