@@ -397,6 +397,55 @@ def wall_vecs_from_points(wall_points: jnp.ndarray,ordering=1) -> Tuple[jnp.ndar
     return wall_points[None,:,:],jnp.roll(wall_points,ordering,axis=0)[None,:,:]
 
 
+def get_initial_fill_shape(
+        shape_name: str,
+        shape, 
+        initial_positions, 
+        overwrite_cache: bool = False
+        ) -> Tuple[jnp.ndarray,jnp.ndarray]:
+    import os
+    if os.path.exists(f"particle_distributions/{shape_name}_r.pkl") and not overwrite_cache:
+        starting_positions = jnp.load(f"particle_distributions/{shape_name}_r.pkl")
+        starting_angles = jnp.load(f"particle_distributions/{shape_name}_r.pkl")
+        shape_to_compare = jnp.load(f"particle_distributions/{shape_name}_shape.pkl")
+        assert jnp.allclose(shape,shape_to_compare)
+    else:
+        wall_starts, wall_ends = wall_vecs_from_points(shape)
+        sim_params = {
+            "total_time": 100.,
+            "v0": 0.,
+            "poissonAngleReassignmentRate": 1e-9,
+            "translationGamma": 0.7,
+            "rotationGamma": 0.1,
+            "wall_gamma_list": jnp.array([jnp.inf] * len(shape)),
+            "pbc_size": 1e5,
+            "return_history": True,
+            "do_animation": True,
+            "wall_starts": wall_starts,
+            "wall_ends": wall_ends,
+        }
+
+        initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
+
+        r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
+
+        starting_positions,starting_angles = r_history[-1], theta_history[-1]
+        
+        jnp.save(f"../particle_distributions/{shape_name}_r.pkl",starting_positions)
+        jnp.save(f"../particle_distributions/{shape_name}_theta.pkl",starting_angles)
+        jnp.save(f"../particle_distributions/{shape_name}_shape.pkl",shape)
+
+        do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+        if do_animation:
+            animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size,gif_filename=f"../particle_distributions/{shape_name}_ani.gif")
+
+
+
+    return starting_positions,starting_angles
+
+
+def simulate_spike(box_size: float = 80.):
+
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
 
