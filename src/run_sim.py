@@ -445,6 +445,29 @@ def get_initial_fill_shape(
 
 
 def simulate_spike(box_size: float = 80.):
+    x_offset = 0.1
+    half_height = 0.5
+    spike_shape = (box_size/2) * jnp.array([
+            [-1+x_offset, -half_height],
+            [-1+x_offset, half_height],
+            [1+x_offset, half_height - half_height/3],
+            [-0.5+x_offset, half_height - 2*half_height/3],
+            [1+x_offset, half_height - 3*half_height/3],
+            [-0.5+x_offset, half_height - 4*half_height/3],
+            [1+x_offset, half_height - 5*half_height/3],
+        ])
+
+    initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-0.5,0.5)
+    print(jnp.mean(initial_positions,axis=0))
+    initial_positions = initial_positions - jnp.array([0.4,0])[None,:]
+    print(jnp.mean(initial_positions,axis=0))
+    initial_positions = initial_positions * jnp.array([0.5,0.9])[None,:] * box_size
+    print(jnp.mean(initial_positions,axis=0))
+
+    # exit()
+    initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions, overwrite_cache=True)
+
+    
 
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
@@ -455,6 +478,7 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
     x_offset = 0.1
     half_height = 0.5
 
+    # triple spike
     wall_shape = (box_size/2) * jnp.array([
             [-1+x_offset, -half_height],
             [-1+x_offset, half_height],
@@ -469,16 +493,19 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
         wall_shape
     )
 
-    wall_starts = jnp.array([[
-        (box_size/2) * jnp.array([-1+x_offset,-0.5]),
-        (box_size/2) * jnp.array([1+x_offset,0]),
-        (box_size/2) * jnp.array([-1+x_offset,0.5]),
-    ]])
-    wall_ends = jnp.array([[
-        (box_size/2) * jnp.array([-1+x_offset,0.5]),
-        (box_size/2) * jnp.array([-1+x_offset,-0.5]),
-        (box_size/2) * jnp.array([1+x_offset,0]),
-    ]]) 
+
+    # # Triangle
+    # wall_starts = (box_size/2) * jnp.array([[
+    #     jnp.array([-1+x_offset,half_height]),
+    #     jnp.array([-1+x_offset,-half_height]),
+    #     jnp.array([1+x_offset,-half_height + half_height/4]),
+    #     jnp.array([1+x_offset,0]),
+    # ]])
+    # wall_ends = (box_size/2) * jnp.array([[
+    #     jnp.array([-1+x_offset,-half_height]),
+    #     jnp.array([1+x_offset,0]),
+    #     jnp.array([-1+x_offset,half_height]),
+    # ]])
 
     sim_params = {
         "total_time": total_time,
@@ -519,8 +546,8 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
 
 from jax import value_and_grad
 
-total_time = 400.
-nparticles = 1000
+total_time = 100.
+nparticles = 10000
 sim_grad = value_and_grad(simulate_with_walls,argnums=(0,1))
 theta_0 = 0.7*jnp.pi
 fraction_0 = 0.4
@@ -530,6 +557,4 @@ box_size = 100
 # for _ in range(10):
 #     sim_grad(theta_0,fraction_0,num_walls,box_size)
 
-for _ in range(1):
-    lower_fraction = simulate_with_walls(theta_0,fraction_0,num_walls,box_size)
-    print(lower_fraction)
+simulate_spike()
