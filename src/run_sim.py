@@ -452,6 +452,14 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
     plt.savefig("Accumulation in bottom")
     plt.figure()
 
+    wall_mid_x,wall_mid_y = jnp.mean(wall_history - wall_history[0],axis=(1,3)).squeeze().transpose()
+    plt.plot(wall_mid_x,label="Delta Mean X")
+    plt.plot(wall_mid_y/5,label="Delta Mean Y/5")
+    plt.legend()
+    plt.savefig("triangle_motion.png")
+
+    plt.figure()
+
     do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
     if do_animation:
         animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size)
