@@ -23,7 +23,7 @@ TIMESTEPS_PER_FRAME = 50
 initial_random_key = rand.PRNGKey(678912390)
 global total_time
 
-def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]:
+def rotation_noise(rand_key, num_particles: int, rotation_diffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]:
     r"""
     Computes `\delta`-correlated noise used to cause drift in `\theta(t)`.
     Becaus we work in discrete-time, we must ensure that 
@@ -43,10 +43,10 @@ def rotation_noise(rand_key, num_particles: int, rotationDiffusion: float, dt: f
 
     key, new_key = rand.split(rand_key)
 
-    return new_key, rand.normal(key, (num_particles,), float) * jnp.sqrt(2*rotationDiffusion / dt)
+    return new_key, rand.normal(key, (num_particles,), float) * jnp.sqrt(2*rotation_diffusion / dt)
 rotation_noise = jit(rotation_noise,static_argnums=(1,2,3))
 
-def translation_noise(rand_key, num_particles: int, translationDiffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]: 
+def translation_noise(rand_key, num_particles: int, translation_diffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]: 
     r"""
     Computes `\delta`-correlated noise used to cause drift in `r(t)`. 
     Because we work in discrete-time, we must ensure that 
@@ -65,7 +65,7 @@ def translation_noise(rand_key, num_particles: int, translationDiffusion: float,
 
     key, new_key = rand.split(rand_key)
 
-    return new_key, rand.normal(key, (num_particles,2), float) * jnp.sqrt(2*translationDiffusion / dt)
+    return new_key, rand.normal(key, (num_particles,2), float) * jnp.sqrt(2*translation_diffusion / dt)
 translation_noise = jit(translation_noise,static_argnums=(1,2,3))
 
 def get_derivatives(
@@ -79,18 +79,18 @@ def get_derivatives(
 
     dt =                                sim_params.get("dt",DEFAULT_DT)
     v0 =                                sim_params.get("v0",DEFAULT_V0)
-    translationGamma =                  sim_params.get("translationGamma",DEFAULT_TRANSLATION_GAMMA)
-    translationDiffusion =              sim_params.get("translationDiffusion",DEFAULT_TRANSLATION_DIFFUSION)
-    rotationGamma =                     sim_params.get("rotationGamma",DEFAULT_ROTATION_GAMMA)
-    rotationDiffusion =                 sim_params.get("rotationDiffusion",DEFAULT_ROTATION_DIFFUSION)
+    translation_gamma =                  sim_params.get("translation_gamma",DEFAULT_TRANSLATION_GAMMA)
+    translation_diffusion =              sim_params.get("translation_diffusion",DEFAULT_TRANSLATION_DIFFUSION)
+    rotation_gamma =                     sim_params.get("rotation_gamma",DEFAULT_ROTATION_GAMMA)
+    rotation_diffusion =                 sim_params.get("rotation_diffusion",DEFAULT_ROTATION_DIFFUSION)
     omega =                             sim_params.get("omega",DEFAULT_OMEGA)
 
     heading_vector = jnp.array([jnp.cos(theta),jnp.sin(theta)]).transpose()
-    rand_key, zeta = translation_noise(rand_key,num_particles,translationDiffusion,dt)
-    r_dot = v0 * heading_vector + zeta/translationGamma # should have shape (n,1,2).
+    rand_key, zeta = translation_noise(rand_key,num_particles,translation_diffusion,dt)
+    r_dot = v0 * heading_vector + zeta/translation_gamma # should have shape (n,1,2).
 
-    rand_key, xi = rotation_noise(rand_key, num_particles, rotationDiffusion, dt)
-    theta_dot = omega + xi/rotationGamma
+    rand_key, xi = rotation_noise(rand_key, num_particles, rotation_diffusion, dt)
+    theta_dot = omega + xi/rotation_gamma
 
     return rand_key, r_dot, theta_dot
 get_derivatives = jit(get_derivatives)
@@ -367,7 +367,7 @@ def run_sim(
 
 @jit
 def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
-    particle_gamma = sim_params.get("translationGamma", DEFAULT_TRANSLATION_GAMMA)
+    particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
     wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
@@ -417,8 +417,8 @@ def get_initial_fill_shape(
             "total_time": 100.,
             "v0": 0.,
             "poissonAngleReassignmentRate": 1e-9,
-            "translationGamma": 1,
-            "rotationGamma": 0.1,
+            "translation_gamma": 1,
+            "rotation_gamma": 0.1,
             "wall_gamma_list": jnp.array([jnp.inf] * len(shape)),
             "pbc_size": 1e5,
             "return_history": True,
