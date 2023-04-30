@@ -404,10 +404,10 @@ def get_initial_fill_shape(
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
     import os
-    if os.path.exists(f"particle_distributions/{shape_name}_r.pkl") and not overwrite_cache:
-        starting_positions = jnp.load(f"particle_distributions/{shape_name}_r.pkl")
-        starting_angles = jnp.load(f"particle_distributions/{shape_name}_r.pkl")
-        shape_to_compare = jnp.load(f"particle_distributions/{shape_name}_shape.pkl")
+    if os.path.exists(os.path.join("..","particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
+        starting_positions = jnp.load(f"../particle_distributions/{shape_name}_r.npy")
+        starting_angles = jnp.load(f"../particle_distributions/{shape_name}_theta.npy")
+        shape_to_compare = jnp.load(f"../particle_distributions/{shape_name}_shape.npy")
         assert jnp.allclose(shape,shape_to_compare)
     else:
         wall_starts, wall_ends = wall_vecs_from_points(shape)
@@ -431,9 +431,9 @@ def get_initial_fill_shape(
 
         starting_positions,starting_angles = r_history[-1], theta_history[-1]
         
-        jnp.save(f"../particle_distributions/{shape_name}_r.pkl",starting_positions)
-        jnp.save(f"../particle_distributions/{shape_name}_theta.pkl",starting_angles)
-        jnp.save(f"../particle_distributions/{shape_name}_shape.pkl",shape)
+        jnp.save(f"../particle_distributions/{shape_name}_r.npy",starting_positions)
+        jnp.save(f"../particle_distributions/{shape_name}_theta.npy",starting_angles)
+        jnp.save(f"../particle_distributions/{shape_name}_shape.npy",shape)
 
         do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
         if do_animation:
@@ -464,9 +464,8 @@ def simulate_spike(box_size: float = 80.):
     initial_positions = initial_positions * jnp.array([0.3,0.3])[None,:] * box_size
     print(jnp.mean(initial_positions,axis=0))
 
-    initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions, overwrite_cache=True)
+    initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions)
 
-    
 
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
