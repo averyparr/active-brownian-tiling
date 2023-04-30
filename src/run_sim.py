@@ -239,12 +239,12 @@ class WallHolder:
         
         wall_diffs = wall_ends - wall_starts
         wall_lengths = jnp.linalg.norm(wall_diffs, axis=1)
-        wall_thickness = 3.
+        wall_thickness = 1.
         max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + wall_thickness
 
         fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
         rot90_arr = jnp.array([[0, -1], [1, 0]])
-        distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr
+        distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr.transpose()
 
         r_relative_to_wall_starts = r[:,None,:] - wall_midpoints
 
@@ -261,7 +261,8 @@ class WallHolder:
 
         hits_walls = is_within_wall_parallel & is_close_to_wall_normal
 
-        wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
+        # wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
+        wall_correction = (wall_thickness - normal_dist_from_walls)
         wall_correction = (wall_correction * hits_walls)[:,:,None] * distance_from_wall_vec
         wall_correction = jnp.sum(wall_correction,axis=1)
 
@@ -367,16 +368,17 @@ def run_sim(
 @jit
 def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
     particle_gamma = sim_params.get("translationGamma", DEFAULT_TRANSLATION_GAMMA)
-    wall_fluid_drag_list = sim_params.get("wallFluidDrag", [DEFAULT_WALL_GAMMA]*len(wall_starts))
+    wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
         delta_theta = theta_dot * dt
         
         if wall_starts is not None:
-            for wall_indx, fluid_drag in enumerate(wall_fluid_drag_list):
+            for wall_indx, fluid_drag in enumerate(wall_gamma_list):
                 correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
-                wall_com_adjustment = jax.lax.clamp(-2.*dt,WallHolder._jit_update_wall_positions(correction,particle_gamma,fluid_drag),2.*dt)
+
+                wall_com_adjustment = WallHolder._jit_update_wall_positions(correction,particle_gamma,fluid_drag)
 
                 wall_starts = wall_starts.at[wall_indx].set(wall_starts[wall_indx] + wall_com_adjustment)
                 wall_ends = wall_ends.at[wall_indx].set(wall_ends[wall_indx] + wall_com_adjustment)
