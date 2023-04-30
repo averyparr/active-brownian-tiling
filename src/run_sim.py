@@ -458,13 +458,12 @@ def simulate_spike(box_size: float = 80., sim_params: dict = {}):
         ])
 
     initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-0.5,0.5)
-    print(jnp.mean(initial_positions,axis=0))
     initial_positions = initial_positions - jnp.array([0.5,0])[None,:]
-    print(jnp.mean(initial_positions,axis=0))
     initial_positions = initial_positions * jnp.array([0.3,0.3])[None,:] * box_size
-    print(jnp.mean(initial_positions,axis=0))
 
     initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions)
+
+
 
 
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
