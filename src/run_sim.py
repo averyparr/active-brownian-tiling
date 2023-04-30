@@ -415,7 +415,7 @@ def get_initial_fill_shape(
             "total_time": 100.,
             "v0": 0.,
             "poissonAngleReassignmentRate": 1e-9,
-            "translationGamma": 0.7,
+            "translationGamma": 1,
             "rotationGamma": 0.1,
             "wall_gamma_list": jnp.array([jnp.inf] * len(shape)),
             "pbc_size": 1e5,
@@ -459,12 +459,11 @@ def simulate_spike(box_size: float = 80.):
 
     initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-0.5,0.5)
     print(jnp.mean(initial_positions,axis=0))
-    initial_positions = initial_positions - jnp.array([0.4,0])[None,:]
+    initial_positions = initial_positions - jnp.array([0.5,0])[None,:]
     print(jnp.mean(initial_positions,axis=0))
-    initial_positions = initial_positions * jnp.array([0.5,0.9])[None,:] * box_size
+    initial_positions = initial_positions * jnp.array([0.3,0.3])[None,:] * box_size
     print(jnp.mean(initial_positions,axis=0))
 
-    # exit()
     initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions, overwrite_cache=True)
 
     
