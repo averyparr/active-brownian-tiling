@@ -18,6 +18,7 @@ from multiprocessing.pool import Pool
 from visualization import animate_particles
 
 MANY = 50
+TIMESTEPS_PER_FRAME = 50
 
 initial_random_key = rand.PRNGKey(678912390)
 global total_time
@@ -339,7 +340,7 @@ def run_sim(
     for step in trange(num_steps):
         rand_key, r, theta, wall_starts, wall_ends = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_starts, wall_ends, pbc_size)
 
-        if step % int(50/MANY) == 0 and return_history:
+        if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
             walls_history.append([wall_starts.copy(),wall_ends.copy()])
