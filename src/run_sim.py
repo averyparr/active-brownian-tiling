@@ -392,6 +392,10 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
     return rand_key, r, theta, wall_starts, wall_ends
 
+def wall_vecs_from_points(wall_points: jnp.ndarray,ordering=1) -> Tuple[jnp.ndarray, jnp.ndarray]:
+    assert ordering in [-1,1]
+    return wall_points[None,:,:],jnp.roll(wall_points,ordering,axis=0)[None,:,:]
+
 
 def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
     chevron_starts, chevron_ends = chevron_walls(n_walls,box_size,angle,gap_fraction)
@@ -399,7 +403,22 @@ def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box
     wall_starts = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_STARTS,chevron_starts,axis=0)[:4]])/1.5
     wall_ends = jnp.array([jnp.append((box_size/2)*BOUNDING_BOX_ENDS,chevron_ends,axis=0)[:4]])/1.5
 
-    x_offset = 0.3
+    x_offset = 0.1
+    half_height = 0.5
+
+    wall_shape = (box_size/2) * jnp.array([
+            [-1+x_offset, -half_height],
+            [-1+x_offset, half_height],
+            [1+x_offset, half_height - half_height/3],
+            [-0.5+x_offset, half_height - 2*half_height/3],
+            [1+x_offset, half_height - 3*half_height/3],
+            [-0.5+x_offset, half_height - 4*half_height/3],
+            [1+x_offset, half_height - 5*half_height/3],
+        ])
+
+    wall_starts,wall_ends = wall_vecs_from_points(
+        wall_shape
+    )
 
     wall_starts = jnp.array([[
         (box_size/2) * jnp.array([-1+x_offset,-0.5]),
