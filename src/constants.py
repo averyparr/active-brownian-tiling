@@ -17,6 +17,9 @@ DEFAULT_DO_ANIMATION = True
 
 DEFAULT_PERIODIC_BOUNDARY_SIZE = None
 
+import os
+PROJECT_DIR = os.path.dirname(os.path.dirname(__file__))
+
 BOUNDING_BOX_STARTS = jnp.array([
     [1.,1.],
     [-1.,1.],

@@ -404,10 +404,12 @@ def get_initial_fill_shape(
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
     import os
-    if os.path.exists(os.path.join("..","particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
-        starting_positions = jnp.load(f"../particle_distributions/{shape_name}_r.npy")
-        starting_angles = jnp.load(f"../particle_distributions/{shape_name}_theta.npy")
-        shape_to_compare = jnp.load(f"../particle_distributions/{shape_name}_shape.npy")
+    if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
+        # print(PROJECT_DIR)
+        # exit()
+        starting_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
+        starting_angles = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
+        shape_to_compare = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_shape.npy"))
         assert jnp.allclose(shape,shape_to_compare)
     else:
         wall_starts, wall_ends = wall_vecs_from_points(shape)
