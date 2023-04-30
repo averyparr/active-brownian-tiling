@@ -307,7 +307,7 @@ def run_sim(
 
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
-    poissonAngleReassignmentRate =      sim_params.get("poissonAngleReassignmentRate",DEFAULT_POISSON_ANGLE_REASSIGNMENT_RATE)
+    tumble_rate =                       sim_params.get("tumble_rate",DEFAULT_TUMBLE_RATE)
     wall_starts =                       sim_params.get("wall_starts", None)
     wall_ends =                         sim_params.get("wall_ends", None)
     return_history =                    sim_params.get("return_history", True)
@@ -329,10 +329,10 @@ def run_sim(
     theta = initial_heading_angles.copy()
 
     # We know that angle reassignment is done as a Poisson process, so the time
-    # between events is distributed as Expo(poissonAngleReassignmentRate).
+    # between events is distributed as Expo(tumble_rate).
     
     key, rand_key = rand.split(rand_key)
-    time_until_angle_reassignment = rand.exponential(key,(num_particles,),float) / poissonAngleReassignmentRate
+    time_until_angle_reassignment = rand.exponential(key,(num_particles,),float) / tumble_rate
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
@@ -355,7 +355,7 @@ def run_sim(
             theta = theta.at[reassign_which_particles].set(new_thetas)
             
             key, rand_key = rand.split(rand_key)
-            next_reassignment_of_reassigned_particles = step + (rand.exponential(key,(num_reassignments,),float) / poissonAngleReassignmentRate / dt).astype(jnp.int32)
+            next_reassignment_of_reassigned_particles = step + (rand.exponential(key,(num_reassignments,),float) / tumble_rate / dt).astype(jnp.int32)
             next_reassignment_all_particles = next_reassignment_all_particles.at[reassign_which_particles].set(next_reassignment_of_reassigned_particles)
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
@@ -416,7 +416,7 @@ def get_initial_fill_shape(
         sim_params = {
             "total_time": 100.,
             "v0": 0.,
-            "poissonAngleReassignmentRate": 1e-9,
+            "tumble_rate": 1e-9,
             "translation_gamma": 1,
             "rotation_gamma": 0.1,
             "wall_gamma_list": jnp.array([jnp.inf] * len(shape)),
