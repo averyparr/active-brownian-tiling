@@ -549,21 +549,111 @@ def sim_spike(
     
     return jnp.mean(wall_mid_x)
 
-    final_r = jnp.mean(r_history[-100:],axis=0)
 
-    return (jnp.tanh(-10*final_r.squeeze()[:,1])+1)/2 @ jnp.ones(nparticles) / nparticles # very close to (final_r.squeeze()[:,1] < 0.) @ jnp.ones(nparticles) but continuous
+box_size = 100.
+
+
+# x_offset = 0.1
+# half_height = 0.2
+# spike_shape = (box_size/2) * jnp.array([
+#         [-1+x_offset, -half_height],
+#         [-1+x_offset, half_height],
+#         [1+x_offset, half_height - half_height/3],
+#         [-0.7+x_offset, half_height - 2*half_height/3],
+#         [1+x_offset, half_height - 3*half_height/3],
+#         [-0.7+x_offset, half_height - 4*half_height/3],
+#         [1+x_offset, half_height - 5*half_height/3],
+#     ])
+
+triple_triangle_shape = (0.3*box_size) * (jnp.array([
+    [-0.55,0],
+    [-0.7,0.5],
+    [-0.4,0.1],
+    [-0.5,0.5],
+    [-0.2,0.1],
+    [-0.3,0.5],
+    [0,0],
+    [-0.3,-0.5],
+    [-0.2,-0.1],
+    [-0.5,-0.5],
+    [-0.4,-0.1],
+    [-0.7,-0.5],
+]) + jnp.array([0.3,0.]))
+
+wall_starts, wall_ends = wall_vecs_from_points(triple_triangle_shape,-1)
+
+box_starts = (box_size/2)*jnp.array(BOUNDING_BOX_STARTS)
+box_ends = (box_size/2)*jnp.array(BOUNDING_BOX_ENDS)
+
+wall_starts = [wall_starts,box_starts]
+wall_ends = [wall_ends,box_ends]
+
+for ws,we in zip(wall_starts,wall_ends):
+    for w1,w2 in zip(ws,we):
+        plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="k")
+
+# rand_angles = rand.uniform(initial_random_key,(50*TIMESTEPS_PER_FRAME,),float,-0.01,0.01)
+# rand_changes = rand.uniform(initial_random_key,(50*TIMESTEPS_PER_FRAME,2),float,-0.005,0.01)
+# for theta,dr in tqdm.tqdm(zip(rand_angles,rand_changes)):
+#     rotation_matrix = jnp.array([[jnp.cos(theta), -jnp.sin(theta)],
+#                                  [jnp.sin(theta), jnp.cos(theta)]])
+#     wall_com = jnp.mean((wall_starts[0] + wall_ends[0])/2,axis=0)
+#     wall_starts[0] = (wall_starts[0] - wall_com) @ rotation_matrix.transpose() + wall_com + dr
+#     wall_ends[0] = (wall_ends[0] - wall_com) @ rotation_matrix.transpose() + wall_com + dr
+
+# for ws,we in zip(wall_starts,wall_ends):
+#     for w1,w2 in zip(ws,we):
+#         plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="r")
+
+plt.savefig("wall_shape.png")
+
+initial_mean_wall_position = jnp.mean((wall_starts[0]+wall_ends[0])/2,axis=0)
 
 from jax import value_and_grad
+diff_sim_spike = value_and_grad(sim_spike, (1, 3, 5, 7,))
 
-total_time = 100.
 nparticles = 10000
-sim_grad = value_and_grad(simulate_with_walls,argnums=(0,1))
-theta_0 = 0.7*jnp.pi
-fraction_0 = 0.4
-num_walls = 10
-box_size = 100
+total_time = 2000.
+v0 = 2.
+translation_gamma = 1.
+translation_diffusion = 1e-2
+rotation_gamma = 0.1
+rotation_diffusion = 1e-4
+omega = 0.1
+tumble_rate = 1.
+wall_gamma = 10.
+wall_rotation_gamma = 500.
 
-# for _ in range(10):
-#     sim_grad(theta_0,fraction_0,num_walls,box_size)
+for i in range(1):
+    val = sim_spike(
+        "triple_triangle", 
+        total_time,
+        v0,
+        translation_gamma,
+        translation_diffusion,
+        rotation_gamma,
+        rotation_diffusion,
+        omega,
+        tumble_rate,
+        box_size,
+        [wall_gamma,jnp.inf],
+        [wall_rotation_gamma,jnp.inf],
+    )
 
-simulate_spike()
+    print(f"""
+    ——————————————————————————————————
+    [STAGE {i}]
+    End Mean Position: {val}
+    """)
+    
+    # print(f"""
+    # ——————————————————————————————————
+    # [STAGE {i}]
+    # End Mean Position: {val}
+    # v0: {v0}\t{learning_rate * d_v0}
+    # translation_gamma: {translation_gamma}\t{learning_rate * d_translation_gamma}
+    # translation_diffusion: {translation_diffusion}\t{learning_rate * d_translation_diffusion}
+    # rotation_gamma: {rotation_gamma}\t{learning_rate * d_rotation_gamma}
+    # rotation_diffusion: {rotation_diffusion}\t{learning_rate * d_rotation_diffusion}
+    # tumble_rate: {tumble_rate}\t{learning_rate * d_tumble_rate}
+    # """)
