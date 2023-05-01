@@ -623,7 +623,7 @@ from jax import value_and_grad
 diff_sim_spike = value_and_grad(sim_spike, (1, 3, 5, 7,))
 
 nparticles = 10000
-total_time = 2000.
+total_time = 850.
 v0 = 2.
 translation_gamma = 1.
 translation_diffusion = 1e-2
@@ -636,7 +636,7 @@ wall_rotation_gamma = 500.
 
 for i in range(1):
     val = sim_spike(
-        "triple_triangle", 
+        "triple_right_triangle", 
         total_time,
         v0,
         translation_gamma,
