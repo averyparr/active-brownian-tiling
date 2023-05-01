@@ -124,34 +124,9 @@ class WallHolder:
     Because we have many different vectors to encode, it makes good sense to 
     keep them all in a single class (oh, would that Python have structs). 
     """
-    def __init__(self, wall_starts:jnp.ndarray, wall_ends:jnp.ndarray, wall_fluid_drag_coefficient: float = float("inf")) -> None:
-        """
-        Creates a WallHolder object, including computing required midpoint,
-        paralell, and normal vectors. Walls are constructed between 
-        `wall_starts[i]` and `wall_ends[i]`. 
-
-        Parameters
-        ----------
-        wall_starts: jnp.ndarray
-            A (W, 2) arrary encoding the starting points of each wall
-        wall_ends: jnp.ndarray
-            A (W, 2) array encoding the stopping points of each wall. 
-        wall_fluid_drag_coefficient: float
-            Drag coefficient used to convert velocities and forces. 
-            Often called `\gamma`. 
         
-        Returns
-        ----------
-        WallHolder object with all necessary vectors cached. 
-        """
-
-
-        self.wall_starts = wall_starts.copy()
-        self.wall_ends = wall_ends.copy()
-
-        self.fluid_drag = wall_fluid_drag_coefficient
-
-    def update_position_based_on_equal_opposite_forces(self,wall_correction_to_dr: jnp.ndarray, particle_gamma: float) -> None:
+    @jit
+    def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
         """
         Translates the entire WallHolder according to the total amount of impulse
         it has experienced in a given timestep. Suppose each particle i experiences 
@@ -173,7 +148,9 @@ class WallHolder:
             changes. wall_correction_to_dr[i,0] = `c_i`. 
         particle_gamma: float
             Specifies the fluid drag coefficient of the particles. 
+        """
 
+        return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
 
 
 
@@ -190,11 +167,13 @@ class WallHolder:
         return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
         
 
-
-
-    def correct_for_collisions(self,
+    @jit
+    def _jit_get_collision_correction(
             r: jnp.ndarray,
-            delta_r: jnp.ndarray) -> jnp.ndarray:
+            delta_r: jnp.ndarray,
+            wall_starts: jnp.ndarray,
+            wall_ends: jnp.ndarray,
+            ) -> jnp.ndarray:
         """
         Computes the updated value of `r`, taking into account whether
         any collisions occur. If none do, returns r + delta_r. Ensures
@@ -213,26 +192,6 @@ class WallHolder:
         correction: jnp.ndarray
             (W,2) Correction to delta_r that should ensure that no 
             final positions collide with the walls in this WallHolder. 
-        """
-
-        return WallHolder._jit_get_collision_correction(
-            r,
-            delta_r,
-            self.wall_starts,
-            self.wall_ends,
-            ) 
-    @jit
-    def _jit_get_collision_correction(
-            r: jnp.ndarray,
-            delta_r: jnp.ndarray,
-            wall_starts: jnp.ndarray,
-            wall_ends: jnp.ndarray,
-            ) -> jnp.ndarray:
-        """
-        Helper function for correct_for_collisions. Formatted
-        so that it can be JIT-compiled by JAX. 
-
-        See documentation for WallHelper.correct_for_collisions. 
         """
 
         wall_midpoints = (wall_starts + wall_ends) / 2.
