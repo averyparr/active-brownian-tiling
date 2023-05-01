@@ -141,7 +141,7 @@ def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamm
     return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
 
 @jit 
-def _jit_get_wall_rotation_matrix(
+def _jit_get_wall_rotation(
     wall_com: jnp.ndarray,
     r: jnp.ndarray,
     wall_correction_to_dr: jnp.ndarray, 
@@ -430,7 +430,7 @@ def do_many_sim_steps(
 
             wall_coms[wall_indx] = wall_coms[wall_indx] + wall_com_adjustment
 
-            wall_angles[wall_indx] += _jit_get_wall_rotation_matrix(
+            wall_angles[wall_indx] += _jit_get_wall_rotation(
                 wall_coms[wall_indx],
                 r,
                 correction,
