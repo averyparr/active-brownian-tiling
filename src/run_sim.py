@@ -370,6 +370,7 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
     particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
     wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
     wall_rotational_gamma_list = sim_params.get("wall_rotational_gamma_list", [DEFAULT_WALL_ROTATIONAL_GAMMA]*len(wall_starts))
+    wall_force_direction_list = sim_params.get("wall_force_direction", [1]*len(wall_starts))
 
 
     wall_angle_change = [0. for i in range(len(wall_starts))]
@@ -377,8 +378,8 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
         wall_gamma_list = [wall_gamma_list] * len(wall_starts)
     if not isinstance(wall_rotational_gamma_list, Iterable):
         wall_rotational_gamma_list = [wall_rotational_gamma_list] * len(wall_starts)
-    if not isinstance(wall_gamma_list, Iterable):
-        wall_gamma_list = [wall_gamma_list] * len(wall_starts)
+    if not isinstance(wall_force_direction_list, Iterable):
+        wall_force_direction_list = [wall_force_direction_list] * len(wall_starts)
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
@@ -428,12 +429,13 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
 
 def wall_vecs_from_points(wall_points: jnp.ndarray,ordering=1) -> Tuple[jnp.ndarray, jnp.ndarray]:
     assert ordering in [-1,1]
-    return wall_points[None,:,:],jnp.roll(wall_points,ordering,axis=0)[None,:,:]
+    return wall_points,jnp.roll(wall_points,ordering,axis=0)
 
 
 def get_initial_fill_shape(
         shape_name: str,
         shape, 
+        box_size: float,
         initial_positions, 
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
@@ -454,18 +456,20 @@ def get_initial_fill_shape(
             "translation_gamma": 1,
             "rotation_gamma": 0.1,
             "wall_gamma_list": [jnp.inf],
-            "pbc_size": 1e5,
+            "pbc_size": 10*box_size,
             "return_history": True,
             "do_animation": True,
             "wall_starts": [wall_starts],
             "wall_ends": [wall_ends],
+            "wall_force_direction": [-1],
         }
 
         initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
 
         r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
 
-        starting_positions,starting_angles = r_history[-1], theta_history[-1]
+        starting_positions = jax.lax.clamp(-0.49*box_size,r_history[-1],0.49*box_size)
+        starting_angles = theta_history[-1]
         
         jnp.save(f"../particle_distributions/{shape_name}_r.npy",starting_positions)
         jnp.save(f"../particle_distributions/{shape_name}_theta.npy",starting_angles)
