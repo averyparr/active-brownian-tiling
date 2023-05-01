@@ -484,93 +484,70 @@ def get_initial_fill_shape(
     return starting_positions,starting_angles
 
 
-def simulate_spike(box_size: float = 80., sim_params: dict = {}):
-    x_offset = 0.1
-    half_height = 0.5
-    spike_shape = (box_size/2) * jnp.array([
-            [-1+x_offset, -half_height],
-            [-1+x_offset, half_height],
-            [1+x_offset, half_height - half_height/3],
-            [-0.5+x_offset, half_height - 2*half_height/3],
-            [1+x_offset, half_height - 3*half_height/3],
-            [-0.5+x_offset, half_height - 4*half_height/3],
-            [1+x_offset, half_height - 5*half_height/3],
-        ])
-
-    initial_positions = rand.uniform(initial_random_key,(nparticles,2),float,-0.5,0.5)
-    initial_positions = initial_positions - jnp.array([0.5,0])[None,:]
-    initial_positions = initial_positions * jnp.array([0.3,0.3])[None,:] * box_size
-
-    initial_positions, initial_headings = get_initial_fill_shape("triple_spike",spike_shape,initial_positions)
-
-
-
-
-def simulate_with_walls(angle: float, gap_fraction: float, n_walls: int = 5, box_size: float = 80.) -> float:
-    x_offset = 0.1
-    half_height = 0.5
-
-    # triple spike
-    wall_shape = (box_size/2) * jnp.array([
-            [-1+x_offset, -half_height],
-            [-1+x_offset, half_height],
-            [1+x_offset, half_height - half_height/3],
-            [-0.5+x_offset, half_height - 2*half_height/3],
-            [1+x_offset, half_height - 3*half_height/3],
-            [-0.5+x_offset, half_height - 4*half_height/3],
-            [1+x_offset, half_height - 5*half_height/3],
-        ])
-
-    wall_starts,wall_ends = wall_vecs_from_points(
-        wall_shape
-    )
-
-
-    # # Triangle
-    # wall_starts = (box_size/2) * jnp.array([[
-    #     jnp.array([-1+x_offset,half_height]),
-    #     jnp.array([-1+x_offset,-half_height]),
-    #     jnp.array([1+x_offset,-half_height + half_height/4]),
-    #     jnp.array([1+x_offset,0]),
-    # ]])
-    # wall_ends = (box_size/2) * jnp.array([[
-    #     jnp.array([-1+x_offset,-half_height]),
-    #     jnp.array([1+x_offset,0]),
-    #     jnp.array([-1+x_offset,half_height]),
-    # ]])
-
+def sim_spike(
+        spike_name: str,
+        total_time: float,
+        v0: float,
+        translation_gamma: float,
+        translation_diffusion: float,
+        rotation_gamma: float,
+        rotation_diffusion: float,
+        omega: float,
+        tumble_rate: float,
+        box_size: float, 
+        wall_gamma: float,
+        wall_rotation_gamma: float,
+    ):
     sim_params = {
         "total_time": total_time,
-        "pbc_size": box_size*1000,
-        "return_history": True,
-        "do_animation": True,
+        "pbc_size": 2*box_size,
+        "v0": v0,
+        "translation_gamma": translation_gamma,
+        "translation_diffusion": translation_diffusion,
+        "rotation_gamma": rotation_gamma,
+        "rotation_diffusion": rotation_diffusion,
+        "omega": omega,
+        "tumble_rate": tumble_rate,
+        "wall_gamma_list": wall_gamma,
+        "wall_rotational_gamma_list": wall_rotation_gamma,
         "wall_starts": wall_starts,
         "wall_ends": wall_ends,
+        "do_animation": True,
+        "return_history": True
     }
-    initial_positions = jnp.array([0.7,0.1])*rand.uniform(initial_random_key,(nparticles,2),float,-0.9*box_size/2.,0.9*box_size/2.) * 0
-    initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
 
-    r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
+
+    initial_positions = rand.uniform(initial_random_key, (nparticles,2),float,-0.4*box_size,0.4*box_size)
+
+    initial_positions, initial_heading_angles = get_initial_fill_shape(spike_name,triple_triangle_shape,box_size,initial_positions)
+
+    assert len(initial_positions) >= nparticles
+    initial_positions = initial_positions[:nparticles]
+    initial_heading_angles = initial_heading_angles[:nparticles]
+
+
+    r_history,theta_history,wall_history = run_sim(initial_positions, initial_heading_angles, sim_params)
+
+    ### POST PROCESSING OF SIM RESULTS
+
+
+    wall_mid_x,wall_mid_y = jnp.mean(wall_history[0] - wall_history[0][0],axis=(1,2)).squeeze().transpose()
+    return_history = sim_params.get("return_history", DEFAULT_RETURN_HISTORY)
+    if return_history:
+        plt.figure()
+        plt.plot(wall_mid_x,label="Delta Mean X")
+        plt.plot(wall_mid_y/5,label="Delta Mean Y/5")
+        plt.legend()
+        plt.savefig("spike_motion.png")
+
+        plt.figure()
+
+        do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+        if do_animation:
+            animate_particles(r_history,theta_history,[hist for hist in wall_history], 1.5*box_size,1.5*box_size)
+
     
-    plt.figure()
-    plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,1] < 0.,axis=1),label="Bottom Half")
-    plt.plot(jnp.count_nonzero(r_history.squeeze()[:,:,0] < 0.,axis=1),label="Left Half")
-    plt.legend()
-
-    plt.savefig("Accumulation in bottom")
-    plt.figure()
-
-    wall_mid_x,wall_mid_y = jnp.mean(wall_history - wall_history[0],axis=(1,3)).squeeze().transpose()
-    plt.plot(wall_mid_x,label="Delta Mean X")
-    plt.plot(wall_mid_y/5,label="Delta Mean Y/5")
-    plt.legend()
-    plt.savefig("triangle_motion.png")
-
-    plt.figure()
-
-    do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
-    if do_animation:
-        animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size)
+    return jnp.mean(wall_mid_x)
 
     final_r = jnp.mean(r_history[-100:],axis=0)
 
