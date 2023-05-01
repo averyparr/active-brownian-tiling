@@ -95,8 +95,95 @@ def get_derivatives(
     return rand_key, r_dot, theta_dot
 get_derivatives = jit(get_derivatives)
 
-class WallHolder:
+@jit
+def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
     """
+    Translates the entire WallHolder according to the total amount of impulse
+    it has experienced in a given timestep. Suppose each particle i experiences 
+    forces `f_i` from non-wall sources in time `dt`. Due to its fluid drag, it 
+    experiences velocity `f_i/\gamma_i` and moves by `f_i dt/\gamma_i`. Suppose
+    it collides with the wall for `d\tau <= dt` time. The wall exerts normal
+    force `n_i` and so leads to a correction of `c_i = n_i d\tau/\gamma_i` in 
+    the particle's position. The wall experiences a force `-n_i` for `d\tau` 
+    and has fluid drag `\gamma_w`. It then moves by `-n_id\tau/\gamma_w`. We 
+    can express this as 
+
+    `wall_correction = -n_i d\tau/\gamma_w = -c_i \gamma_i / \gamma_w`
+
+
+    Parameters
+    ----------
+    wall_correction_to_dr: jnp.ndarray
+        (W,2) Array specifying our wall's modificaiton to particles' position 
+        changes. wall_correction_to_dr[i,0] = `c_i`. 
+    particle_gamma: float
+        Specifies the fluid drag coefficient of the particles. 
+    """
+
+    return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
+
+@jit 
+def _jit_get_wall_rotation_matrix(
+    wall_com: jnp.ndarray,
+    r: jnp.ndarray,
+    wall_correction_to_dr: jnp.ndarray, 
+    particle_gamma: float, 
+    wall_rotational_drag: float, 
+    dt: float) -> jnp.ndarray:
+    r"""
+    We want to compute the angle `\theta` by which the wall object rotates
+    as a result of all the forces it experiences. Each of these forces is of
+    the form `fi = -c_i \gamma_i` (see _jit_update_wall_positions).
+    
+    Relative to the center of mass of the walls r_com, this yields a torque
+
+    `\tau_i = r x fi = r[0] * fi[1] - r[1] * fi[0]`
+
+    (implicitly, in the z direction, but everything is in the xy plane, so
+    we can treat this as a scalar). We assume that this translates directly
+    to a rotational velocity by a rotational drag `\gamma_R`, so 
+
+    `\omega = \sum_i \tau_i / \gamma_R`
+
+    Parameters
+    ----------
+    wall_com: jnp.ndarray
+        (2) Array specifying current COM of the wall object.
+    r: jnp.ndarray
+        (n,2) Array specifying the current positions of each particle. 
+    wall_correction_to_dr: jnp.ndarray
+        (n,2) Array specifying our wall's modificaiton to particles' position 
+        changes. wall_correction_to_dr[i,0] = `c_i`. 
+    particle_gamma: float
+        Specifies the fluid drag coefficient of the particles. 
+    wall_rotational_drag: float
+        Specifies wall rotational drag. 
+    
+    Returns
+    ----------
+    rotation_matrix: jnp.ndarray
+        (2,2) Array that can be dotted into our new wall coordinates
+        describing how it will rotate. 
+    """
+    relative_positions = (r - wall_com)
+    forces = - wall_correction_to_dr * particle_gamma
+    torques = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
+    omega = jnp.sum(torques) / wall_rotational_drag
+    return omega * dt
+    # return jnp.array([  [jnp.cos(omega*dt), -jnp.sin(omega*dt)],
+    #                     [jnp.sin(omega*dt), jnp.cos(omega*dt)]])
+
+@jit
+def _jit_get_collision_correction(
+        r: jnp.ndarray,
+        delta_r: jnp.ndarray,
+        wall_starts: jnp.ndarray,
+        wall_ends: jnp.ndarray,
+        ) -> jnp.ndarray:
+    """
+    Computes a correction to delta_r that ensures that no particles collide with
+    the given wall.
+    
     Suppose we have W walls. Walls are parametrized as two (W,2) arrays 
     describing their start and end points, with the line between these points
     being the "wall". We treat particles as 0-size, and walls as having a
@@ -120,148 +207,56 @@ class WallHolder:
     `r -> r + (Th - (r @ n_i)) n_i`
     
     which ensures (r @ n_i) = Th. 
+    
 
-    Because we have many different vectors to encode, it makes good sense to 
-    keep them all in a single class (oh, would that Python have structs). 
+    
+    Parameters
+    ----------
+    r: jnp.ndarray
+        Current positions of all particles. (n, 1, 2) Array.
+    delta_r: jnp.ndarray
+        Proposed update to positions of all particles, and
+        should be equal to r_dot * dt. 
+
+    Returns
+    ----------
+    correction: jnp.ndarray
+        (W,2) Correction to delta_r that should ensure that no 
+        final positions collide with the walls in this WallHolder. 
     """
-        
-    @jit
-    def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
-        """
-        Translates the entire WallHolder according to the total amount of impulse
-        it has experienced in a given timestep. Suppose each particle i experiences 
-        forces `f_i` from non-wall sources in time `dt`. Due to its fluid drag, it 
-        experiences velocity `f_i/\gamma_i` and moves by `f_i dt/\gamma_i`. Suppose
-        it collides with the wall for `d\tau <= dt` time. The wall exerts normal
-        force `n_i` and so leads to a correction of `c_i = n_i d\tau/\gamma_i` in 
-        the particle's position. The wall experiences a force `-n_i` for `d\tau` 
-        and has fluid drag `\gamma_w`. It then moves by `-n_id\tau/\gamma_w`. We 
-        can express this as 
 
-        `wall_correction = -n_i d\tau/\gamma_w = -c_i \gamma_i / \gamma_w`
+    wall_midpoints = (wall_starts + wall_ends) / 2.
+    
+    wall_diffs = wall_ends - wall_starts
+    wall_lengths = jnp.linalg.norm(wall_diffs, axis=1)
+    wall_thickness = 1.
+    max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + wall_thickness
 
+    fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
+    rot90_arr = jnp.array([[0, -1], [1, 0]])
+    distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr.transpose()
 
-        Parameters
-        ----------
-        wall_correction_to_dr: jnp.ndarray
-            (W,2) Array specifying our wall's modificaiton to particles' position 
-            changes. wall_correction_to_dr[i,0] = `c_i`. 
-        particle_gamma: float
-            Specifies the fluid drag coefficient of the particles. 
-        """
+    r_relative_to_wall_starts = r[:,None,:] - wall_midpoints
 
-        return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
+    r_dot_normal_wall = jnp.sum(r_relative_to_wall_starts * distance_from_wall_vec,axis=-1)
+    r_dot_horizontal_wall = jnp.sum(r_relative_to_wall_starts * fraction_along_wall_vec,axis=2)
 
-    @jit 
-    def _jit_get_wall_rotation_matrix(
-        wall_com: jnp.ndarray,
-        r: jnp.ndarray,
-        wall_correction_to_dr: jnp.ndarray, 
-        particle_gamma: float, 
-        wall_rotational_drag: float, 
-        dt: float) -> jnp.ndarray:
-        r"""
-        We want to compute the angle `\theta` by which the wall object rotates
-        as a result of all the forces it experiences. Each of these forces is of
-        the form `fi = -c_i \gamma_i` (see _jit_update_wall_positions).
-        
-        Relative to the center of mass of the walls r_com, this yields a torque
+    dr_dot_normal_wall = jnp.sum(delta_r[:,None,:] * distance_from_wall_vec, axis=-1)
 
-        `\tau_i = r x fi = r[0] * fi[1] - r[1] * fi[0]`
+    normal_dist_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
 
-        (implicitly, in the z direction, but everything is in the xy plane, so
-        we can treat this as a scalar). We assume that this translates directly
-        to a rotational velocity by a rotational drag `\gamma_R`, so 
-
-        `\omega = \sum_i \tau_i / \gamma_R`
-
-        Parameters
-        ----------
-        wall_com: jnp.ndarray
-            (2) Array specifying current COM of the wall object.
-        r: jnp.ndarray
-            (n,2) Array specifying the current positions of each particle. 
-        wall_correction_to_dr: jnp.ndarray
-            (n,2) Array specifying our wall's modificaiton to particles' position 
-            changes. wall_correction_to_dr[i,0] = `c_i`. 
-        particle_gamma: float
-            Specifies the fluid drag coefficient of the particles. 
-        wall_rotational_drag: float
-            Specifies wall rotational drag. 
-        
-        Returns
-        ----------
-        rotation_matrix: jnp.ndarray
-            (2,2) Array that can be dotted into our new wall coordinates
-            describing how it will rotate. 
-        """
-        relative_positions = (r - wall_com)
-        forces = - wall_correction_to_dr * particle_gamma
-        torques = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
-        omega = jnp.sum(torques) / wall_rotational_drag
-        return omega * dt
-        # return jnp.array([  [jnp.cos(omega*dt), -jnp.sin(omega*dt)],
-        #                     [jnp.sin(omega*dt), jnp.cos(omega*dt)]])
-
-    @jit
-    def _jit_get_collision_correction(
-            r: jnp.ndarray,
-            delta_r: jnp.ndarray,
-            wall_starts: jnp.ndarray,
-            wall_ends: jnp.ndarray,
-            ) -> jnp.ndarray:
-        """
-        Computes the updated value of `r`, taking into account whether
-        any collisions occur. If none do, returns r + delta_r. Ensures
-        that abs(r @ n_i) >= Th for all particles after evolution. 
-        
-        Parameters
-        ----------
-        r: jnp.ndarray
-            Current positions of all particles. (n, 1, 2) Array.
-        delta_r: jnp.ndarray
-            Proposed update to positions of all particles, and
-            should be equal to r_dot * dt. 
-
-        Returns
-        ----------
-        correction: jnp.ndarray
-            (W,2) Correction to delta_r that should ensure that no 
-            final positions collide with the walls in this WallHolder. 
-        """
-
-        wall_midpoints = (wall_starts + wall_ends) / 2.
-        
-        wall_diffs = wall_ends - wall_starts
-        wall_lengths = jnp.linalg.norm(wall_diffs, axis=1)
-        wall_thickness = 1.
-        max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + wall_thickness
-
-        fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
-        rot90_arr = jnp.array([[0, -1], [1, 0]])
-        distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr.transpose()
-
-        r_relative_to_wall_starts = r[:,None,:] - wall_midpoints
-
-        r_dot_normal_wall = jnp.sum(r_relative_to_wall_starts * distance_from_wall_vec,axis=-1)
-        r_dot_horizontal_wall = jnp.sum(r_relative_to_wall_starts * fraction_along_wall_vec,axis=2)
-
-        dr_dot_normal_wall = jnp.sum(delta_r[:,None,:] * distance_from_wall_vec, axis=-1)
-
-        normal_dist_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
-
-        is_within_wall_parallel = jnp.abs(r_dot_horizontal_wall) < max_horizontal_distance_from_wall_center
-        is_close_to_wall_normal = normal_dist_from_walls < wall_thickness
+    is_within_wall_parallel = jnp.abs(r_dot_horizontal_wall) < max_horizontal_distance_from_wall_center
+    is_close_to_wall_normal = normal_dist_from_walls < wall_thickness
 
 
-        hits_walls = is_within_wall_parallel & is_close_to_wall_normal
+    hits_walls = is_within_wall_parallel & is_close_to_wall_normal
 
-        # wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
-        wall_correction = (wall_thickness - normal_dist_from_walls)
-        wall_correction = (wall_correction * hits_walls)[:,:,None] * distance_from_wall_vec
-        wall_correction = jnp.sum(wall_correction,axis=1)
+    # wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
+    wall_correction = (wall_thickness - normal_dist_from_walls)
+    wall_correction = (wall_correction * hits_walls)[:,:,None] * distance_from_wall_vec
+    wall_correction = jnp.sum(wall_correction,axis=1)
 
-        return wall_correction
+    return wall_correction
 
 
 def run_sim(
@@ -386,9 +381,9 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
         delta_theta = theta_dot * dt
         if wall_starts is not None:
             for wall_indx, (translational_wall_drag,rotational_wall_drag,force_direction) in enumerate(zip(wall_gamma_list,wall_rotational_gamma_list,wall_force_direction_list)):
-                correction = force_direction * WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+                correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
 
-                wall_com_adjustment = WallHolder._jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
+                wall_com_adjustment = _jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
                 wall_com_adjustment = jax.lax.clamp(-0.1*dt,wall_com_adjustment,0.1*dt)
 
                 wall_starts[wall_indx] = wall_starts[wall_indx] + wall_com_adjustment
@@ -397,7 +392,7 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
 
                 wall_com = jnp.mean((wall_starts[wall_indx] + wall_ends[wall_indx])/2.,axis=0) # (2,) Array
 
-                wall_angle_change[wall_indx] += WallHolder._jit_get_wall_rotation_matrix(
+                wall_angle_change[wall_indx] += _jit_get_wall_rotation_matrix(
                 # wall_rotation_matrix = WallHolder._jit_get_wall_rotation_matrix(
                     wall_com,
                     r,
@@ -406,7 +401,7 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
                     rotational_wall_drag, 
                     dt,
                 )
-                correction = force_direction * WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+                correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
                 delta_r += correction
         r += delta_r
         theta = theta + delta_theta
