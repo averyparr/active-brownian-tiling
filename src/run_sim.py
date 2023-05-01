@@ -46,7 +46,6 @@ def rotation_noise(rand_key, num_particles: int, rotation_diffusion: float, dt: 
     key, new_key = rand.split(rand_key)
 
     return new_key, rand.normal(key, (num_particles,), float) * jnp.sqrt(2*rotation_diffusion / dt)
-rotation_noise = jit(rotation_noise,static_argnums=(1,2,3))
 
 def translation_noise(rand_key, num_particles: int, translation_diffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]: 
     r"""
@@ -68,7 +67,6 @@ def translation_noise(rand_key, num_particles: int, translation_diffusion: float
     key, new_key = rand.split(rand_key)
 
     return new_key, rand.normal(key, (num_particles,2), float) * jnp.sqrt(2*translation_diffusion / dt)
-translation_noise = jit(translation_noise,static_argnums=(1,2,3))
 
 def get_derivatives(
         r: jnp.ndarray, 
