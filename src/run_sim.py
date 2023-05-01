@@ -478,6 +478,7 @@ def get_initial_fill_shape(
             "translation_gamma": 1,
             "rotation_gamma": 0.1,
             "wall_gamma_list": [jnp.inf],
+            "wall_rotational_gamma_list": [jnp.inf],
             "pbc_size": 10*box_size,
             "return_history": True,
             "do_animation": True,
