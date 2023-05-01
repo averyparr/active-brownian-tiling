@@ -1,5 +1,7 @@
 from typing import Tuple, List
 import jax
+import re
+import os
 
 from collections.abc import Iterable
 import jax.numpy as jnp
@@ -16,6 +18,9 @@ from multiprocessing.pool import Pool
 
 
 from visualization import animate_particles
+
+# Create a regular expression pattern to match "yes" or "no" and their variants
+yes_no_pattern = re.compile(r'^(y|yes|yeah|yup|yea|no|n|nope)$', re.IGNORECASE)
 
 TIMESTEPS_PER_FRAME = 500
 MANY = 50
@@ -461,48 +466,70 @@ def get_initial_fill_shape(
         initial_positions, 
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
-    import os
-    if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
-        # print(PROJECT_DIR)
-        # exit()
-        starting_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
-        starting_angles = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
-        shape_to_compare = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_shape.npy"))
-        assert jnp.allclose(shape,shape_to_compare)
-    else:
-        wall_starts, wall_ends = wall_vecs_from_points(shape)
-        sim_params = {
-            "total_time": 100.,
-            "v0": 0.,
-            "tumble_rate": 1e-9,
-            "translation_gamma": 1,
-            "rotation_gamma": 0.1,
-            "wall_gamma_list": [jnp.inf],
-            "wall_rotational_gamma_list": [jnp.inf],
-            "pbc_size": 10*box_size,
-            "return_history": True,
-            "do_animation": True,
-            "wall_starts": [wall_starts],
-            "wall_ends": [wall_ends],
-            "wall_force_direction": [-1],
-        }
+    
+    while True:
+        if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
+            # print(PROJECT_DIR)
+            # exit()
+            starting_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
+            starting_angles = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
+            shape_to_compare = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_shape.npy"))
+            
+            try:
+                assert jnp.allclose(shape,shape_to_compare)
+                # Break out of while loop if assertion passes
+                break
+            except AssertionError:
+                clear_cache = input('Mismatch between shape and cached version. Clear cache? [Y/n]: ') or "y"
+                if yes_no_pattern.match(clear_cache):
+                    if clear_cache.lower() in ['y', 'yes', 'yeah', 'yup', 'yea']:
+                        for filename in os.listdir(os.path.join(PROJECT_DIR, 'particle_distributions')):
+                            # Check if the filename contains the shape name
+                            if shape_name in filename:
+                                # Remove the file
+                                os.remove(os.path.join(PROJECT_DIR, 'particle_distributions', filename))
+                        overwrite_cache = True
+                    else:
+                        raise AssertionError('Fatal mismatch between shape and cached version.')
+                else:
+                    # User input is invalid
+                    print("Invalid input. Please enter 'yes' or 'no'.")
+        else:
+            wall_starts, wall_ends = wall_vecs_from_points(shape)
+            sim_params = {
+                "total_time": 100.,
+                "v0": 0.,
+                "tumble_rate": 1e-9,
+                "translation_gamma": 1,
+                "rotation_gamma": 0.1,
+                "wall_gamma_list": [jnp.inf],
+                "wall_rotational_gamma_list": [jnp.inf],
+                 "wall_rotational_gamma_list": [jnp.inf],
+                "pbc_size": 10*box_size,
+                "return_history": True,
+                "do_animation": True,
+                "wall_starts": [wall_starts],
+                "wall_ends": [wall_ends],
+                "wall_force_direction": [-1],
+            }
 
-        initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
+            initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
 
-        r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
+            r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
 
-        starting_positions = jax.lax.clamp(-0.49*box_size,r_history[-1],0.49*box_size)
-        starting_angles = theta_history[-1]
-        
-        jnp.save(f"../particle_distributions/{shape_name}_r.npy",starting_positions)
-        jnp.save(f"../particle_distributions/{shape_name}_theta.npy",starting_angles)
-        jnp.save(f"../particle_distributions/{shape_name}_shape.npy",shape)
+            starting_positions = jax.lax.clamp(-0.49*box_size,r_history[-1],0.49*box_size)
+            starting_angles = theta_history[-1]
+            
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_r.npy"),starting_positions)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_theta.npy"),starting_angles)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_shape.npy"),shape)
 
-        do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
-        if do_animation:
-            animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size,gif_filename=f"../particle_distributions/{shape_name}_ani.gif")
-
-
+            do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
+            if do_animation:
+                animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size,gif_filename=os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_ani.gif"))
+            
+            # Break out of while loop if cache clear corrects assertion error
+            break
 
     return starting_positions,starting_angles
 
