@@ -152,20 +152,56 @@ class WallHolder:
 
         return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
 
+    @jit 
+    def _jit_get_wall_rotation_matrix(
+        wall_com: jnp.ndarray,
+        r: jnp.ndarray,
+        wall_correction_to_dr: jnp.ndarray, 
+        particle_gamma: float, 
+        wall_rotational_drag: float, 
+        dt: float) -> jnp.ndarray:
+        r"""
+        We want to compute the angle `\theta` by which the wall object rotates
+        as a result of all the forces it experiences. Each of these forces is of
+        the form `fi = -c_i \gamma_i` (see _jit_update_wall_positions).
+        
+        Relative to the center of mass of the walls r_com, this yields a torque
 
+        `\tau_i = r x fi = r[0] * fi[1] - r[1] * fi[0]`
 
-        ROTATIONAL / TORQUE EFFECTS NOT YET IMPLEMENTED
+        (implicitly, in the z direction, but everything is in the xy plane, so
+        we can treat this as a scalar). We assume that this translates directly
+        to a rotational velocity by a rotational drag `\gamma_R`, so 
+
+        `\omega = \sum_i \tau_i / \gamma_R`
+
+        Parameters
+        ----------
+        wall_com: jnp.ndarray
+            (2) Array specifying current COM of the wall object.
+        r: jnp.ndarray
+            (n,2) Array specifying the current positions of each particle. 
+        wall_correction_to_dr: jnp.ndarray
+            (n,2) Array specifying our wall's modificaiton to particles' position 
+            changes. wall_correction_to_dr[i,0] = `c_i`. 
+        particle_gamma: float
+            Specifies the fluid drag coefficient of the particles. 
+        wall_rotational_drag: float
+            Specifies wall rotational drag. 
+        
+        Returns
+        ----------
+        rotation_matrix: jnp.ndarray
+            (2,2) Array that can be dotted into our new wall coordinates
+            describing how it will rotate. 
         """
-
-        com_translation = -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / self.fluid_drag
-        self.wall_starts += com_translation
-        self.wall_ends += com_translation
-
-        
-    @jit
-    def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
-        return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
-        
+        relative_positions = (r - wall_com)
+        forces = - wall_correction_to_dr * particle_gamma
+        torques = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
+        omega = jnp.sum(torques) / wall_rotational_drag
+        return omega * dt
+        # return jnp.array([  [jnp.cos(omega*dt), -jnp.sin(omega*dt)],
+        #                     [jnp.sin(omega*dt), jnp.cos(omega*dt)]])
 
     @jit
     def _jit_get_collision_correction(
@@ -333,6 +369,14 @@ def run_sim(
 def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
     particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
     wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
+    wall_rotational_gamma_list = sim_params.get("wall_rotational_gamma_list", [DEFAULT_WALL_ROTATIONAL_GAMMA]*len(wall_starts))
+
+
+    wall_angle_change = [0. for i in range(len(wall_starts))]
+    if not isinstance(wall_gamma_list, Iterable):
+        wall_gamma_list = [wall_gamma_list] * len(wall_starts)
+    if not isinstance(wall_rotational_gamma_list, Iterable):
+        wall_rotational_gamma_list = [wall_rotational_gamma_list] * len(wall_starts)
     if not isinstance(wall_gamma_list, Iterable):
         wall_gamma_list = [wall_gamma_list] * len(wall_starts)
     for sub_step in range(MANY):
@@ -348,10 +392,35 @@ def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray,
 
                 wall_starts[wall_indx] = wall_starts[wall_indx] + wall_com_adjustment
                 wall_ends[wall_indx] = wall_ends[wall_indx] + wall_com_adjustment
+                
+
+                wall_com = jnp.mean((wall_starts[wall_indx] + wall_ends[wall_indx])/2.,axis=0) # (2,) Array
+
+                wall_angle_change[wall_indx] += WallHolder._jit_get_wall_rotation_matrix(
+                # wall_rotation_matrix = WallHolder._jit_get_wall_rotation_matrix(
+                    wall_com,
+                    r,
+                    correction,
+                    particle_gamma,
+                    rotational_wall_drag, 
+                    dt,
+                )
                 correction = force_direction * WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
                 delta_r += correction
         r += delta_r
         theta = theta + delta_theta
+        if sub_step % STEPS_PER_ROTATION_TRANSFORM==0:
+            # We do rotation in batches, because floating point error makes it
+            # impossible to get right otherwise
+            for wall_indx in range(len(wall_rotational_gamma_list)):
+                wall_com = jnp.mean((wall_starts[wall_indx] + wall_ends[wall_indx])/2.,axis=0)
+                wall_rotation_matrix = jnp.array([ 
+                    [jnp.cos(wall_angle_change[wall_indx]), -jnp.sin(wall_angle_change[wall_indx])],
+                    [jnp.sin(wall_angle_change[wall_indx]), jnp.cos(wall_angle_change[wall_indx])]])
+                # do the actual rotation
+                wall_starts[wall_indx] = wall_com + (wall_starts[wall_indx] - wall_com) @ wall_rotation_matrix
+                wall_ends[wall_indx] = wall_com + (wall_ends[wall_indx] - wall_com) @ wall_rotation_matrix
+                wall_angle_change[wall_indx] = 0.
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
