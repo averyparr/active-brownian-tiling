@@ -24,7 +24,6 @@ assert TIMESTEPS_PER_FRAME % MANY == 0
 assert MANY % STEPS_PER_ROTATION_TRANSFORM == 0
 
 initial_random_key = rand.PRNGKey(678912390)
-global total_time
 
 def rotation_noise(rand_key, num_particles: int, rotation_diffusion: float, dt: float) -> Tuple[jnp.ndarray,jnp.ndarray]:
     r"""
