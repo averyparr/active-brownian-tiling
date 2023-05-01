@@ -1,7 +1,7 @@
 from typing import Tuple
 import jax
 
-# import jax.numpy as jnp
+from collections.abc import Iterable
 import jax.numpy as jnp
 from jax import random as rand
 from jax import jit
@@ -272,11 +272,13 @@ def run_sim(
     return_history =                    sim_params.get("return_history", True)
     pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
     
-    assert ((wall_starts is None and wall_ends is None) or (wall_starts.shape==wall_ends.shape))
+    assert ((wall_starts is None and wall_ends is None) or (len(wall_starts)==len(wall_ends)))
 
     r_history = []
     theta_history = []
     walls_history = []
+    for _ in wall_starts:
+        walls_history.append([])
 
     rand_key = initial_random_key
 
@@ -303,7 +305,8 @@ def run_sim(
         if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
-            walls_history.append([wall_starts.copy(),wall_ends.copy()])
+            for i in range(len(wall_starts)):
+                walls_history[i].append([wall_starts[i].copy(),wall_ends[i].copy()])
 
         if step >= next_reassignment_event:
             reassign_which_particles = (step>=next_reassignment_all_particles)
@@ -319,30 +322,33 @@ def run_sim(
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
+    walls_history = [jnp.array(single_wall_history) for single_wall_history in walls_history]
+
     if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history),jnp.array(walls_history))
+        return (jnp.array(r_history), jnp.array(theta_history),walls_history)
     else:
-        return r, theta, None
+        return r, theta, jnp.array([[wall_starts,wall_ends]])
 
 @jit
 def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
     particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
     wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
+    if not isinstance(wall_gamma_list, Iterable):
+        wall_gamma_list = [wall_gamma_list] * len(wall_starts)
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
         delta_theta = theta_dot * dt
-        
         if wall_starts is not None:
-            for wall_indx, fluid_drag in enumerate(wall_gamma_list):
-                correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+            for wall_indx, (translational_wall_drag,rotational_wall_drag,force_direction) in enumerate(zip(wall_gamma_list,wall_rotational_gamma_list,wall_force_direction_list)):
+                correction = force_direction * WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
 
-                wall_com_adjustment = WallHolder._jit_update_wall_positions(correction,particle_gamma,fluid_drag)
+                wall_com_adjustment = WallHolder._jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
+                wall_com_adjustment = jax.lax.clamp(-0.1*dt,wall_com_adjustment,0.1*dt)
 
-                wall_starts = wall_starts.at[wall_indx].set(wall_starts[wall_indx] + wall_com_adjustment)
-                wall_ends = wall_ends.at[wall_indx].set(wall_ends[wall_indx] + wall_com_adjustment)
-
-                correction = WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+                wall_starts[wall_indx] = wall_starts[wall_indx] + wall_com_adjustment
+                wall_ends[wall_indx] = wall_ends[wall_indx] + wall_com_adjustment
+                correction = force_direction * WallHolder._jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
                 delta_r += correction
         r += delta_r
         theta = theta + delta_theta
@@ -378,12 +384,12 @@ def get_initial_fill_shape(
             "tumble_rate": 1e-9,
             "translation_gamma": 1,
             "rotation_gamma": 0.1,
-            "wall_gamma_list": jnp.array([jnp.inf] * len(shape)),
+            "wall_gamma_list": [jnp.inf],
             "pbc_size": 1e5,
             "return_history": True,
             "do_animation": True,
-            "wall_starts": wall_starts,
-            "wall_ends": wall_ends,
+            "wall_starts": [wall_starts],
+            "wall_ends": [wall_ends],
         }
 
         initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)

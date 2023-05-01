@@ -48,7 +48,7 @@ def animate_particles(
     """
     r = np.asarray(r)
     theta = np.asarray(theta)
-    wall_history = np.asarray(wall_history)
+    wall_history = [np.asarray(one_hist) for one_hist in wall_history]
     
     n_frames, n_particles, _ = r.shape
 
@@ -70,7 +70,6 @@ def animate_particles(
 
         # Plot the particle positions
         positions = r[frame]
-        wall_start_list, wall_end_list = wall_history[frame]
         ax.scatter(positions[:, 0], positions[:, 1],s=1)
 
         if show_arrows:
@@ -79,8 +78,9 @@ def animate_particles(
             # Plot the arrows using quiver
             ax.quiver(positions[:, 0], positions[:, 1], headings[:, 0], headings[:, 1], color='red', angles='xy', scale_units='xy', scale=1)
         
-        for wall_start,wall_stop in zip(wall_start_list,wall_end_list):
-            for w1, w2 in zip(wall_start,wall_stop):
+        for wall_object in wall_history: # wall_object is a (n_frames, 2, W, 2) Array
+            wall_start_list, wall_end_list = wall_object[frame] # each a (W,2) Array
+            for w1,w2 in zip(wall_start_list,wall_end_list):
                 ax.plot([w1[0],w2[0]], [w1[1],w2[1]],c="k")#, linewidth=5)
 
         # Save the frame to the buffer
