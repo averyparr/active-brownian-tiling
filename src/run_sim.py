@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, List
 import jax
 
 from collections.abc import Iterable
@@ -94,6 +94,24 @@ def get_derivatives(
 
     return rand_key, r_dot, theta_dot
 get_derivatives = jit(get_derivatives)
+
+@jit
+def get_wall_positions(
+        wall_com: jnp.ndarray, 
+        wall_angle: jnp.ndarray, 
+        wall_start_rel_to_com: jnp.ndarray,
+        wall_end_rel_to_com: jnp.ndarray
+        ) -> Tuple[jnp.ndarray,jnp.ndarray]:
+    rotation_matrix = jnp.array([[jnp.cos(wall_angle), -jnp.sin(wall_angle)],
+                                [jnp.sin(wall_angle), jnp.cos(wall_angle)]])
+    # print("beg")
+    # print(wall_com.shape)
+    # print(wall_start_rel_to_com.shape)
+    # print(wall_end_rel_to_com.shape)
+    # print(rotation_matrix.shape)
+    # print("end")
+    return wall_com + wall_start_rel_to_com @ rotation_matrix, wall_com + wall_end_rel_to_com @ rotation_matrix
+    
 
 @jit
 def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
@@ -258,7 +276,6 @@ def _jit_get_collision_correction(
 
     return wall_correction
 
-
 def run_sim(
         initial_positions: jnp.ndarray, 
         initial_heading_angles: jnp.ndarray,
@@ -308,7 +325,21 @@ def run_sim(
     r_history = []
     theta_history = []
     walls_history = []
-    for _ in wall_starts:
+    
+    wall_coms = []
+    wall_angles = []
+    rel_wall_starts = []
+    rel_wall_ends = []
+    for ws, we in zip(wall_starts, wall_ends):
+        # ws, we are (W, 2) arrays encoding start/end coords of each wall 
+        # the wall object
+        wall_com = jnp.mean((ws+we)/2)
+
+        wall_angles.append(0.)
+        wall_coms.append(wall_com)
+        rel_wall_starts.append(ws - wall_com)
+        rel_wall_ends.append(we - wall_com)
+
         walls_history.append([])
 
     rand_key = initial_random_key
@@ -331,13 +362,14 @@ def run_sim(
     # walls = WallHolder(wall_starts,wall_ends,wall_fluid_drag_coefficient=10)
 
     for step in trange(num_steps):
-        rand_key, r, theta, wall_starts, wall_ends = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_starts, wall_ends, pbc_size)
+        rand_key, r, theta, wall_coms, wall_angles = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_coms, wall_angles, rel_wall_starts, rel_wall_ends, pbc_size)
 
         if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
             for i in range(len(wall_starts)):
-                walls_history[i].append([wall_starts[i].copy(),wall_ends[i].copy()])
+                wall_start, wall_end = get_wall_positions(wall_coms[i], wall_angles[i], rel_wall_starts[i], rel_wall_ends[i])
+                walls_history[i].append([wall_start,wall_end])
 
         if step >= next_reassignment_event:
             reassign_which_particles = (step>=next_reassignment_all_particles)
@@ -361,66 +393,61 @@ def run_sim(
         return r, theta, jnp.array([[wall_starts,wall_ends]])
 
 @jit
-def do_many_sim_steps(rand_key: jnp.ndarray, r: jnp.ndarray, theta: jnp.ndarray, sim_params: dict, dt: float, wall_starts: jnp.ndarray, wall_ends: jnp.ndarray, pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
+def do_many_sim_steps(
+        rand_key: jnp.ndarray, 
+        r: jnp.ndarray, 
+        theta: jnp.ndarray, 
+        sim_params: dict, 
+        dt: float, 
+        wall_coms: List[jnp.ndarray], 
+        wall_angles: List[float], 
+        rel_wall_starts: List[jnp.ndarray], 
+        rel_wall_ends: List[jnp.ndarray],
+        pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
     particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
-    wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_starts))
-    wall_rotational_gamma_list = sim_params.get("wall_rotational_gamma_list", [DEFAULT_WALL_ROTATIONAL_GAMMA]*len(wall_starts))
-    wall_force_direction_list = sim_params.get("wall_force_direction", [1]*len(wall_starts))
+    wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_coms))
+    wall_rotational_gamma_list = sim_params.get("wall_rotational_gamma_list", [DEFAULT_WALL_ROTATIONAL_GAMMA]*len(wall_coms))
+    wall_force_direction_list = sim_params.get("wall_force_direction", [1]*len(wall_coms))
 
 
-    wall_angle_change = [0. for i in range(len(wall_starts))]
+    # wall_angle_change = [0. for i in range(len(wall_coms))]
     if not isinstance(wall_gamma_list, Iterable):
-        wall_gamma_list = [wall_gamma_list] * len(wall_starts)
+        wall_gamma_list = [wall_gamma_list] * len(wall_coms)
     if not isinstance(wall_rotational_gamma_list, Iterable):
-        wall_rotational_gamma_list = [wall_rotational_gamma_list] * len(wall_starts)
+        wall_rotational_gamma_list = [wall_rotational_gamma_list] * len(wall_coms)
     if not isinstance(wall_force_direction_list, Iterable):
-        wall_force_direction_list = [wall_force_direction_list] * len(wall_starts)
+        wall_force_direction_list = [wall_force_direction_list] * len(wall_coms)
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
         delta_theta = theta_dot * dt
-        if wall_starts is not None:
-            for wall_indx, (translational_wall_drag,rotational_wall_drag,force_direction) in enumerate(zip(wall_gamma_list,wall_rotational_gamma_list,wall_force_direction_list)):
-                correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
+        for wall_indx, (translational_wall_drag,rotational_wall_drag,force_direction) in enumerate(zip(wall_gamma_list,wall_rotational_gamma_list,wall_force_direction_list)):
+            wall_start, wall_end = get_wall_positions(wall_coms[wall_indx], wall_angles[wall_indx], rel_wall_starts[wall_indx], rel_wall_ends[wall_indx])
+            correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_start,wall_end)
 
-                wall_com_adjustment = _jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
-                wall_com_adjustment = jax.lax.clamp(-0.1*dt,wall_com_adjustment,0.1*dt)
+            wall_com_adjustment = _jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
+            wall_com_adjustment = jax.lax.clamp(-0.1*dt,wall_com_adjustment,0.1*dt)
 
-                wall_starts[wall_indx] = wall_starts[wall_indx] + wall_com_adjustment
-                wall_ends[wall_indx] = wall_ends[wall_indx] + wall_com_adjustment
-                
+            wall_coms[wall_indx] = wall_coms[wall_indx] + wall_com_adjustment
 
-                wall_com = jnp.mean((wall_starts[wall_indx] + wall_ends[wall_indx])/2.,axis=0) # (2,) Array
+            wall_angles[wall_indx] += _jit_get_wall_rotation_matrix(
+                wall_coms[wall_indx],
+                r,
+                correction,
+                particle_gamma,
+                rotational_wall_drag, 
+                dt,
+            )
 
-                wall_angle_change[wall_indx] += _jit_get_wall_rotation_matrix(
-                # wall_rotation_matrix = WallHolder._jit_get_wall_rotation_matrix(
-                    wall_com,
-                    r,
-                    correction,
-                    particle_gamma,
-                    rotational_wall_drag, 
-                    dt,
-                )
-                correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_starts[wall_indx],wall_ends[wall_indx])
-                delta_r += correction
+            wall_start, wall_end = get_wall_positions(wall_coms[wall_indx], wall_angles[wall_indx], rel_wall_starts[wall_indx], rel_wall_ends[wall_indx])
+            correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_start,wall_end)
+            delta_r += correction
         r += delta_r
         theta = theta + delta_theta
-        if sub_step % STEPS_PER_ROTATION_TRANSFORM==0:
-            # We do rotation in batches, because floating point error makes it
-            # impossible to get right otherwise
-            for wall_indx in range(len(wall_rotational_gamma_list)):
-                wall_com = jnp.mean((wall_starts[wall_indx] + wall_ends[wall_indx])/2.,axis=0)
-                wall_rotation_matrix = jnp.array([ 
-                    [jnp.cos(wall_angle_change[wall_indx]), -jnp.sin(wall_angle_change[wall_indx])],
-                    [jnp.sin(wall_angle_change[wall_indx]), jnp.cos(wall_angle_change[wall_indx])]])
-                # do the actual rotation
-                wall_starts[wall_indx] = wall_com + (wall_starts[wall_indx] - wall_com) @ wall_rotation_matrix
-                wall_ends[wall_indx] = wall_com + (wall_ends[wall_indx] - wall_com) @ wall_rotation_matrix
-                wall_angle_change[wall_indx] = 0.
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
-    return rand_key, r, theta, wall_starts, wall_ends
+    return rand_key, r, theta, wall_coms, wall_angles
 
 def wall_vecs_from_points(wall_points: jnp.ndarray,ordering=1) -> Tuple[jnp.ndarray, jnp.ndarray]:
     assert ordering in [-1,1]
@@ -567,7 +594,7 @@ triple_triangle_shape = (0.3*box_size) * (jnp.array([
     [-0.5,0.5],
     [-0.2,0.1],
     [-0.3,0.5],
-    [0,0],
+    [0.2,0],
     [-0.3,-0.5],
     [-0.2,-0.1],
     [-0.5,-0.5],
@@ -575,30 +602,17 @@ triple_triangle_shape = (0.3*box_size) * (jnp.array([
     [-0.7,-0.5],
 ]) + jnp.array([0.3,0.]))
 
-wall_starts, wall_ends = wall_vecs_from_points(triple_triangle_shape,-1)
+triple_triangle_starts, triple_triangle_ends = wall_vecs_from_points(triple_triangle_shape,-1)
 
 box_starts = (box_size/2)*jnp.array(BOUNDING_BOX_STARTS)
 box_ends = (box_size/2)*jnp.array(BOUNDING_BOX_ENDS)
 
-wall_starts = [wall_starts,box_starts]
-wall_ends = [wall_ends,box_ends]
+wall_starts = [triple_triangle_starts,box_starts]
+wall_ends = [triple_triangle_ends,box_ends]
 
 for ws,we in zip(wall_starts,wall_ends):
     for w1,w2 in zip(ws,we):
         plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="k")
-
-# rand_angles = rand.uniform(initial_random_key,(50*TIMESTEPS_PER_FRAME,),float,-0.01,0.01)
-# rand_changes = rand.uniform(initial_random_key,(50*TIMESTEPS_PER_FRAME,2),float,-0.005,0.01)
-# for theta,dr in tqdm.tqdm(zip(rand_angles,rand_changes)):
-#     rotation_matrix = jnp.array([[jnp.cos(theta), -jnp.sin(theta)],
-#                                  [jnp.sin(theta), jnp.cos(theta)]])
-#     wall_com = jnp.mean((wall_starts[0] + wall_ends[0])/2,axis=0)
-#     wall_starts[0] = (wall_starts[0] - wall_com) @ rotation_matrix.transpose() + wall_com + dr
-#     wall_ends[0] = (wall_ends[0] - wall_com) @ rotation_matrix.transpose() + wall_com + dr
-
-# for ws,we in zip(wall_starts,wall_ends):
-#     for w1,w2 in zip(ws,we):
-#         plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="r")
 
 plt.savefig("wall_shape.png")
 
@@ -614,8 +628,8 @@ translation_gamma = 1.
 translation_diffusion = 1e-2
 rotation_gamma = 0.1
 rotation_diffusion = 1e-4
-omega = 0.1
-tumble_rate = 1.
+omega = 0.01*0
+tumble_rate = 1e-3
 wall_gamma = 10.
 wall_rotation_gamma = 500.
 
