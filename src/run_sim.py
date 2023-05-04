@@ -22,7 +22,7 @@ from visualization import animate_particles
 # Create a regular expression pattern to match "yes" or "no" and their variants
 yes_no_pattern = re.compile(r'^(y|yes|yeah|yup|yea|no|n|nope)$', re.IGNORECASE)
 
-TIMESTEPS_PER_FRAME = 500
+TIMESTEPS_PER_FRAME = 1000
 MANY = 50
 STEPS_PER_ROTATION_TRANSFORM = 50
 assert TIMESTEPS_PER_FRAME % MANY == 0
@@ -616,18 +616,9 @@ box_size = 100.
 #     ])
 
 triple_triangle_shape = (0.3*box_size) * (jnp.array([
-    [-0.55,0],
-    [-0.7,0.5],
-    [-0.4,0.1],
-    [-0.5,0.5],
-    [-0.2,0.1],
     [-0.3,0.5],
     [0.2,0],
     [-0.3,-0.5],
-    [-0.2,-0.1],
-    [-0.5,-0.5],
-    [-0.4,-0.1],
-    [-0.7,-0.5],
 ]) + jnp.array([0.3,0.]))
 
 triple_triangle_starts, triple_triangle_ends = wall_vecs_from_points(triple_triangle_shape,-1)
@@ -650,7 +641,7 @@ from jax import value_and_grad
 diff_sim_spike = value_and_grad(sim_spike, (1, 3, 5, 7,))
 
 nparticles = 10000
-total_time = 850.
+total_time = 2000.
 v0 = 2.
 translation_gamma = 1.
 translation_diffusion = 1e-2
@@ -663,7 +654,7 @@ wall_rotation_gamma = 500.
 
 for i in range(1):
     val = sim_spike(
-        "triple_right_triangle", 
+        "single_right_triangle", 
         total_time,
         v0,
         translation_gamma,
