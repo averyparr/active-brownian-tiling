@@ -112,7 +112,8 @@ def collide_oo(o1_v: List[Tuple[float, float]], o2_v: List[Tuple[float, float]])
     return True, (mpv1, mpv2)
 
 
-
+def collide_op():
+    pass
 
 def collide_ow(o_v: List[Tuple[float, float]], BB_MAX: float = 1) -> Tuple[bool, jnp.ndarray]:
     '''

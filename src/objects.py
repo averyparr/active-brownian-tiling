@@ -1,3 +1,4 @@
+from typing import List, Tuple, Union
 import math
 import numpy as np
 import jax.numpy as jnp
@@ -77,6 +78,23 @@ class ConvexPolygon():
         '''
         self.angle += dtheta
         pass
+    
+    def get_vertices_normals_proj(self):
+        '''
+        Returns a tuple of arrays: (vertices, normals, projections) where vertices 
+        contains the current positions of all the vertices, normals contains the current 
+        set of properly oriented normals, and projections contains the projected location 
+        of each edge onto its respective normal.
+        '''
+        cos_theta = jnp.cos(self.angle)
+        sin_theta = jnp.sin(self.angle)
+        rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
+        
+        vertices = jnp.dot(self.vertices_rel, rotation_matrix) + self.centroid
+        normals = jnp.dot(self.normals_0, rotation_matrix)
+        projections = jnp.einsum('ij,ij->i', vertices, normals)
+        
+        return vertices, normals, projections
         
     def get_vertices(self):
         '''
