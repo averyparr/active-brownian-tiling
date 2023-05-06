@@ -3,6 +3,8 @@ import jax
 import re
 import os
 
+from collisions import sort_vertices_ccw, collide_oo, collide_ow
+
 from collections.abc import Iterable
 import jax.numpy as jnp
 from jax import random as rand
@@ -569,7 +571,7 @@ def sim_spike(
 
     initial_positions = rand.uniform(initial_random_key, (nparticles,2),float,-0.4*box_size,0.4*box_size)
 
-    initial_positions, initial_heading_angles = get_initial_fill_shape(spike_name,triple_triangle_shape,box_size,initial_positions)
+    initial_positions, initial_heading_angles = get_initial_fill_shape(spike_name,right_triangle_shape_1,box_size,initial_positions)
 
     assert len(initial_positions) >= nparticles
     initial_positions = initial_positions[:nparticles]
@@ -599,6 +601,7 @@ def sim_spike(
     
     return jnp.mean(wall_mid_x)
 
+# AVERY WHY DID YOU DEFINE GLOBAL VARIABLES IN THE RUN PARAMETERS AAAAAAAA
 
 box_size = 100.
 
@@ -615,25 +618,26 @@ box_size = 100.
 #         [1+x_offset, half_height - 5*half_height/3],
 #     ])
 
-triple_triangle_shape = (0.3*box_size) * (jnp.array([
+right_triangle_shape_1 = (0.3*box_size) * (jnp.array([
     [-0.3,0.5],
     [0.2,0],
     [-0.3,-0.5],
-]) + jnp.array([0.3,0.]))
+]) + jnp.array([0.4,0.]))
 
-triple_triangle_starts, triple_triangle_ends = wall_vecs_from_points(triple_triangle_shape,-1)
+right_triangle_shape_2 = (0.3*box_size) * (jnp.array([
+    [-0.3,0.5],
+    [0.2,0],
+    [-0.3,-0.5],
+]) + jnp.array([-0.4,0.]))
+
+right_triangle_1_starts, right_triangle_1_ends = wall_vecs_from_points(right_triangle_shape_1,-1)
+right_triangle_2_starts, right_triangle_2_ends = wall_vecs_from_points(right_triangle_shape_2,-1)
 
 box_starts = (box_size/2)*jnp.array(BOUNDING_BOX_STARTS)
 box_ends = (box_size/2)*jnp.array(BOUNDING_BOX_ENDS)
 
-wall_starts = [triple_triangle_starts,box_starts]
-wall_ends = [triple_triangle_ends,box_ends]
-
-for ws,we in zip(wall_starts,wall_ends):
-    for w1,w2 in zip(ws,we):
-        plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="k")
-
-plt.savefig("wall_shape.png")
+wall_starts = [right_triangle_1_starts, right_triangle_2_starts, box_starts]
+wall_ends = [right_triangle_1_ends, right_triangle_2_ends, box_ends]
 
 initial_mean_wall_position = jnp.mean((wall_starts[0]+wall_ends[0])/2,axis=0)
 
@@ -652,36 +656,49 @@ tumble_rate = 1e-3
 wall_gamma = 10.
 wall_rotation_gamma = 500.
 
-for i in range(1):
-    val = sim_spike(
-        "single_right_triangle", 
-        total_time,
-        v0,
-        translation_gamma,
-        translation_diffusion,
-        rotation_gamma,
-        rotation_diffusion,
-        omega,
-        tumble_rate,
-        box_size,
-        [wall_gamma,jnp.inf],
-        [wall_rotation_gamma,jnp.inf],
-    )
+def main():
 
-    print(f"""
-    ——————————————————————————————————
-    [STAGE {i}]
-    End Mean Position: {val}
-    """)
+    for ws,we in zip(wall_starts,wall_ends):
+        for w1,w2 in zip(ws,we):
+            plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="k")
+
+    plt.savefig("wall_shape.png")
+
     
-    # print(f"""
-    # ——————————————————————————————————
-    # [STAGE {i}]
-    # End Mean Position: {val}
-    # v0: {v0}\t{learning_rate * d_v0}
-    # translation_gamma: {translation_gamma}\t{learning_rate * d_translation_gamma}
-    # translation_diffusion: {translation_diffusion}\t{learning_rate * d_translation_diffusion}
-    # rotation_gamma: {rotation_gamma}\t{learning_rate * d_rotation_gamma}
-    # rotation_diffusion: {rotation_diffusion}\t{learning_rate * d_rotation_diffusion}
-    # tumble_rate: {tumble_rate}\t{learning_rate * d_tumble_rate}
-    # """)
+
+    for i in range(1):
+        val = sim_spike(
+            "single_right_triangle", 
+            total_time,
+            v0,
+            translation_gamma,
+            translation_diffusion,
+            rotation_gamma,
+            rotation_diffusion,
+            omega,
+            tumble_rate,
+            box_size,
+            [wall_gamma,jnp.inf],
+            [wall_rotation_gamma,jnp.inf],
+        )
+
+        print(f"""
+        ——————————————————————————————————
+        [STAGE {i}]
+        End Mean Position: {val}
+        """)
+        
+        # print(f"""
+        # ——————————————————————————————————
+        # [STAGE {i}]
+        # End Mean Position: {val}
+        # v0: {v0}\t{learning_rate * d_v0}
+        # translation_gamma: {translation_gamma}\t{learning_rate * d_translation_gamma}
+        # translation_diffusion: {translation_diffusion}\t{learning_rate * d_translation_diffusion}
+        # rotation_gamma: {rotation_gamma}\t{learning_rate * d_rotation_gamma}
+        # rotation_diffusion: {rotation_diffusion}\t{learning_rate * d_rotation_diffusion}
+        # tumble_rate: {tumble_rate}\t{learning_rate * d_tumble_rate}
+        # """)
+
+if __name__ == "__main__":
+    main()
