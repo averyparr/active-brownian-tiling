@@ -237,8 +237,9 @@ def do_many_sim_steps(
             centroids[poly_indx] += poly_com_adjustment
             angles[poly_indx] += poly_angle_adjustment
             
-            wall_corrections = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
-            centroids[poly_indx] += jnp.sum(wall_corrections)
+            wall_com_correction, wall_rot_correction = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
+            centroids[poly_indx] += wall_com_correction
+            angles[poly_indx] += wall_rot_correction
 
             for op_indx in range(poly_indx):
                 correct_op, correct_poly = collide_oo(polygons[op_indx],centroids[op_indx],angles[op_indx],poly,centroids[poly_indx],angles[poly_indx])

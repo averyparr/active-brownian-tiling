@@ -83,7 +83,7 @@ def collide_oo(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, o2: ConvexPolygon,
     return min_correction_if_moving_only_o1/2, -min_correction_if_moving_only_o1/2
 
 @jax.jit
-def collide_ow(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, BB_MAX: float = 1) -> jnp.array:
+def collide_ow(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, BB_MAX: float = 1.) -> jnp.array:
     '''
     Returns an array of mpvs, one for each vertex of o1. The returned array is of shape (v, 2)
     '''
@@ -93,6 +93,10 @@ def collide_ow(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, BB_MAX: float = 1)
     vab = jnp.abs(v)
     
     correction = jax.lax.clamp(0., vab - jnp.array([BB_MAX, BB_MAX]), float("inf")) # positive correction (v, 2)
-    mpvs = jax.lax.mul(correction, -vs) # corrects signs
+    mpvs = -vs * correction # corrects signs
 
-    return mpvs
+    relative_positions = (v - c1)
+    forces = mpvs * o1.pos_gamma
+    torques_dt = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
+
+    return jnp.sum(mpvs), -jnp.sum(torques_dt) / o1.rot_gamma / 1e1
