@@ -3,6 +3,7 @@ import jax.numpy as jnp
 from typing import List, Tuple, Union
 import math
 
+
 from objects import ConvexPolygon
 
 def sort_vertices_ccw(coords):
@@ -81,30 +82,17 @@ def collide_oo(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, o2: ConvexPolygon,
 
     return min_correction_if_moving_only_o1/2, -min_correction_if_moving_only_o1/2
 
-def collide_op():
-    pass
-
-def collide_ow(o_v: List[Tuple[float, float]], BB_MAX: float = 1) -> Tuple[bool, jnp.ndarray]:
+@jax.jit
+def collide_ow(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, BB_MAX: float = 1) -> jnp.array:
     '''
-    Returns True and the (sum of) wall-normal push vector(s) if object is 
-    colliding with a wall.
+    Returns an array of mpvs, one for each vertex of o1. The returned array is of shape (v, 2)
+    '''
     
-    o_v is a list of ordered pairs, the vertices of the polygon. BB_MAX is 
-    the max coordinate of the bounding box in the x and y directions. 
-    Default assumes a box defined by the corners (-1, -1) and (1, 1).
-    '''
-    o_v = jnp.array(o_v)
-    push_vector = jnp.zeros(2)
+    v = o1.get_vertices(c1, a1) # (v, 2)
+    vs = jnp.sign(v)
+    vab = jnp.abs(v)
+    
+    correction = jax.lax.clamp(0., vab - jnp.array([BB_MAX, BB_MAX]), float("inf")) # positive correction (v, 2)
+    mpvs = jax.lax.mul(correction, -vs) # corrects signs
 
-    for vertex in o_v:
-        if vertex[0] < -BB_MAX:
-            push_vector += jnp.array([abs(vertex[0]) - BB_MAX, 0])
-        if vertex[0] > BB_MAX:
-            push_vector += jnp.array([BB_MAX - vertex[0], 0])
-        if vertex[1] < -BB_MAX:
-            push_vector += jnp.array([0, abs(vertex[1]) - BB_MAX])
-        if vertex[1] > BB_MAX:
-            push_vector += jnp.array([0, BB_MAX - vertex[1]])
-
-    is_colliding = jnp.any(push_vector)
-    return is_colliding, push_vector
+    return mpvs
