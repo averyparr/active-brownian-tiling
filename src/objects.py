@@ -1,7 +1,10 @@
-from typing import Tuple
+from typing import Tuple, Union
 import math
 import jax.numpy as jnp
 from jax import jit,tree_util,lax
+from matplotlib import pyplot as plt
+from constants import DEFAULT_WALL_GAMMA, DEFAULT_WALL_ROTATIONAL_GAMMA
+from constants import DEFAULT_BOX_SIZE, PROJECT_DIR, BOUNDING_BOX_VERTICES
 
 
 class ConvexPolygon:
@@ -54,6 +57,67 @@ class ConvexPolygon:
         max_mpv = jnp.max(only_negative_projections, axis=1) #(n, Array); I know this is inefficient but can't get the better way to jax
 
         return -max_mpv[:, None] * normals[mpv_indx]
+
+    @jit
+    def get_rotation_from_wall_particle_interaction(self, 
+            centroid: jnp.ndarray, 
+            r: jnp.ndarray, 
+            poly_correction_to_particles: jnp.ndarray, 
+            particle_gamma: float
+            ) -> float:
+        r"""
+        We want to compute the angle `\theta` by which the polygon rotates
+        as a result of all the forces it experiences. Each of these forces is of
+        the form `fi dt = -c_i \gamma_i` where `c_i` is the amount by which the 
+        polygon has moved particle i in the last timestep.
+        
+        Relative to the center of mass of the walls r_com, this yields a torque
+
+        `\tau_i dt = r x fi = r[0] * fi[1] - r[1] * fi[0]`
+
+        (implicitly, in the z direction, but everything is in the xy plane, so
+        we can treat this as a scalar). We assume that this translates directly
+        to a rotational velocity by a rotational drag `\gamma_R`, so 
+
+        `\Delta \theta = \sum_i \tau_i dt / \gamma_R`
+
+        Parameters
+        ----------
+        centroid: jnp.ndarray
+            (2) Array specifying current COM of the polygon.
+        r: jnp.ndarray
+            (n,2) Array specifying the current positions of each particle. 
+        poly_correction_to_particles: jnp.ndarray
+            (n,2) Array specifying our polygon's modificaiton to particles' position 
+            changes. polygon_correction_to_particles[i,0] = `c_i`. 
+        particle_gamma: float
+            Specifies the fluid drag coefficient of the particles. 
+        
+        Returns
+        ----------
+        theta: angle by which the polygon rotates due to the effects of forces
+        from the particles on the wall. 
+        """
+
+        relative_positions = (r - centroid)
+        forces = - poly_correction_to_particles * particle_gamma
+        torques_dt = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
+        return jnp.sum(torques_dt) / self.rot_gamma
+        
+    def is_inside(self, centroid: jnp.ndarray, angle: float, r: jnp.ndarray) -> jnp.ndarray:
+        _, normals, polygon_projections = self.get_vertices_normals_proj_jax(centroid, angle)
+        bacteria_projection = r @ normals.transpose() #(n,2) x (2, v) -> (n,v) Array
+        relative_projection = (bacteria_projection - polygon_projections)  # (n,v) Array
+        are_all_projections_negative = jnp.all(relative_projection < 0,axis=1) # (n,) Array
+        return are_all_projections_negative
+
+    def plot(self):
+        plt.figure()
+        plt.xlim(-DEFAULT_BOX_SIZE*1.2/2,DEFAULT_BOX_SIZE*1.2/2)
+        plt.ylim(-DEFAULT_BOX_SIZE*1.2/2,DEFAULT_BOX_SIZE*1.2/2)
+        plt.fill(*self.get_vertices(0.0,0.0).transpose(),linewidth=3,c="r", facecolor="none")
+        plt.fill(*BOUNDING_BOX_VERTICES.transpose(), linewidth=3,c="k",facecolor = "none")
+        plt.savefig(f"{PROJECT_DIR}/plots/wall_shape.png")
         
 
 tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0, s.pos_gamma, s.rot_gamma), None), lambda _, xs: ConvexPolygon(xs[0], xs[1], xs[2], xs[3]))
