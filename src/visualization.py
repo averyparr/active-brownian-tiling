@@ -17,7 +17,7 @@ def animate_particles(
         poly_history: List[jnp.ndarray], 
         box_size: float,
         show_arrows: bool=False,
-        gif_filename: str="particles.gif"
+        gif_filename: str=f"{PROJECT_DIR}/plots/particles.gif"
         ):
     """
     Create an animated GIF of particles with their positions in every frame and optionally display arrows
