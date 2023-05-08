@@ -37,6 +37,14 @@ class ConvexPolygon:
         return vertices, normals, projections
     
     @jit
+    def get_vertices(self, centroid: jnp.ndarray, angle: float) -> jnp.ndarray:
+        cos_theta = jnp.cos(angle)
+        sin_theta = jnp.sin(angle)
+        rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
+        return self.vertices_0 @ rotation_matrix + centroid
+
+    
+    @jit
     def get_min_particle_push_vector(self, centroid: jnp.ndarray, angle: float, positions: jnp.ndarray) -> jnp.ndarray:
         _, normals, polygon_projections = self.get_vertices_normals_proj_jax(centroid, angle)
         bacteria_projection = positions @ normals.transpose() #(n,2) x (2, v) -> (n,v) Array
