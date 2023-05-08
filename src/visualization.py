@@ -17,7 +17,8 @@ def animate_particles(
         poly_history: List[jnp.ndarray], 
         box_size: float,
         show_arrows: bool=False,
-        gif_filename: str=f"{PROJECT_DIR}/plots/particles.gif"
+        gif_filename: str=f"{PROJECT_DIR}/plots/particles.gif",
+        title=""
         ):
     """
     Create an animated GIF of particles with their positions in every frame and optionally display arrows
@@ -55,6 +56,7 @@ def animate_particles(
 
     # Set up the figure and axis
     fig, ax = plt.subplots(figsize=(6, 6))
+    ax.set_title(title)
     ax.set_xlim(-box_size*1.2/2, box_size*1.2/2)
     ax.set_ylim(-box_size*1.2/2, box_size*1.2/2)
 
@@ -76,12 +78,12 @@ def animate_particles(
             # Plot the arrows using quiver
             ax.quiver(positions[:, 0], positions[:, 1], headings[:, 0], headings[:, 1], color='red', angles='xy', scale_units='xy', scale=1)
         
-        for single_history in poly_history:
+        for single_history,c in zip(poly_history,("r","b")):
             vertices = single_history[frame]
-            ax.fill(*vertices.transpose(),c="k", facecolor="none", linewidth=3)
+            ax.fill(*vertices.transpose(),c=c, facecolor="none", linewidth=1)
         
         bounding_box_vertices = BOUNDING_BOX_VERTICES / DEFAULT_BOX_SIZE * box_size
-        ax.fill(*bounding_box_vertices.transpose(),c="k",facecolor="none",linewidth=3)
+        ax.fill(*bounding_box_vertices.transpose(),c="k",facecolor="none",linewidth=1)
 
 
         # Save the frame to the buffer
