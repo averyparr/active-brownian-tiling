@@ -245,8 +245,8 @@ def do_many_sim_steps(
 
 
 def get_initial_fill_shape(
-        shape_name: str,
-        shape: jnp.ndarray, 
+        geometry_name: str,
+        shape_list: List[jnp.ndarray], 
         box_size: float,
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
