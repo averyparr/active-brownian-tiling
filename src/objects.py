@@ -58,7 +58,7 @@ def sort_vertices_ccw(coords: jnp.ndarray) -> jnp.ndarray:
     return sorted_vertices
 
 def is_convex_polygon(coords: jnp.ndarray) -> bool:
-    coords = jnp.ndarray(coords)
+    coords = jnp.array(coords)
     # Check that there are at least three vertices
     if len(coords) < 3:
         return False
@@ -77,7 +77,7 @@ def is_convex_polygon(coords: jnp.ndarray) -> bool:
     
     return True
 
-def vertices_to_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
+def convex_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
     vertices = jnp.array(vertices)
 
     sorted_vertices = jnp.array(sort_vertices_ccw(vertices))
