@@ -311,20 +311,28 @@ def get_initial_fill_shape(
 
 
 def main():
-    single_right_triangle = (DEFAULT_BOX_SIZE/8) * jnp.array([[1.,0.],[0.,1.],[0.,-1.]])
+    square = jnp.array([[20.,20.],[-20.,20.],[-20.,-20.],[20.,-20]]) + jnp.array([-15,0])
+    triangle = jnp.array([[-20.,20.],[-20.,-20.],[20.,-20.]]) + jnp.array([25,-25])
 
 
     r_0, theta_0 = get_initial_fill_shape(
-        "single_right_triangle",
-        single_right_triangle,
-        DEFAULT_BOX_SIZE
+        "triangle_and_square",
+        [square,triangle],
+        DEFAULT_BOX_SIZE,
         )
-    poly, com = convex_polygon(single_right_triangle, return_centroid=True)
+    p1, c1 = convex_polygon(square, return_centroid=True)
+    p2, c2 = convex_polygon(triangle, return_centroid=True)
     
-    poly.plot()
+    sim_params = {
+        "num_particles": 10000,
+        "total_time": 1000.,
+        "do_animation": True,
+        "return_history": True,
+        }
 
-    print(poly.is_inside(com, 0., r_0))
-    print(jnp.count_nonzero(poly.is_inside(com,0.,r_0)))
+    r_history, theta_history, poly_history = run_sim(r_0, theta_0, [p1,p2], [c1,c2], sim_params)
+
+    animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE)
 
 
 if __name__ == "__main__":
