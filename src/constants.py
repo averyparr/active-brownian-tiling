@@ -24,19 +24,16 @@ DEFAULT_PERIODIC_BOUNDARY_SIZE = None
 import os
 PROJECT_DIR = os.path.dirname(os.path.dirname(__file__))
 
-BOUNDING_BOX_STARTS = jnp.array([
-    [1.,1.],
-    [-1.,1.],
-    [-1.,-1.],
-    [1.,-1.],
-])
-BOUNDING_BOX_ENDS = jnp.array([
-    [-1.,1.],
-    [-1.,-1.],
-    [1.,-1.],
-    [1.,1.],
+BOUNDING_BOX_VERTICES = DEFAULT_BOX_SIZE * jnp.array([
+    [0.5,0.5],
+    [-0.5,0.5],
+    [-0.5,-0.5],
+    [0.5,-0.5],
 ])
 
+
+# DEPRECATED -- DOES NOT WORK WITH VERTEX BASED WALLING
+# COULD IN PRINCIPLE BE MADE TO WORK, BUT THIS IS NOT HIGH PRIORITY
 def chevron_walls(
         num_chevrons: int, 
         box_size: float, 
