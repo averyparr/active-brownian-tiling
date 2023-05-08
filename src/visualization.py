@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrow
 from PIL import Image
 import io
+from constants import BOUNDING_BOX_VERTICES, DEFAULT_BOX_SIZE
 
-from constants import DEFAULT_GIF_FPS
+from constants import DEFAULT_GIF_FPS, PROJECT_DIR
 
 def animate_particles(
         r: jnp.ndarray, 
@@ -77,7 +78,10 @@ def animate_particles(
         
         for single_history in poly_history:
             vertices = single_history[frame]
-            ax.fill(*vertices.transpose(),c="k")
+            ax.fill(*vertices.transpose(),c="k", facecolor="none", linewidth=3)
+        
+        bounding_box_vertices = BOUNDING_BOX_VERTICES / DEFAULT_BOX_SIZE * box_size
+        ax.fill(*bounding_box_vertices.transpose(),c="k",facecolor="none",linewidth=3)
 
 
         # Save the frame to the buffer
