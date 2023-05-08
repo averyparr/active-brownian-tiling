@@ -28,7 +28,7 @@ from visualization import animate_particles
 yes_no_pattern = re.compile(r'^(y|yes|yeah|yup|yea|no|n|nope)$', re.IGNORECASE)
 
 TIMESTEPS_PER_FRAME = 1000
-MANY = 50
+MANY = 20
 assert TIMESTEPS_PER_FRAME % MANY == 0
 
 initial_random_key = rand.PRNGKey(678912390)
@@ -202,7 +202,7 @@ def run_sim(
     else:
         return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
 
-# @jit
+@jit
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
         r: jnp.ndarray, 
