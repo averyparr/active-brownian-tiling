@@ -16,7 +16,7 @@ from tqdm import trange
 
 from constants import *
 
-from multiprocessing.pool import Pool
+from objects import ConvexPolygon, convex_polygon
 
 
 from visualization import animate_particles
@@ -26,9 +26,7 @@ yes_no_pattern = re.compile(r'^(y|yes|yeah|yup|yea|no|n|nope)$', re.IGNORECASE)
 
 TIMESTEPS_PER_FRAME = 1000
 MANY = 50
-STEPS_PER_ROTATION_TRANSFORM = 50
 assert TIMESTEPS_PER_FRAME % MANY == 0
-assert MANY % STEPS_PER_ROTATION_TRANSFORM == 0
 
 initial_random_key = rand.PRNGKey(678912390)
 
@@ -84,17 +82,17 @@ def get_derivatives(
         ) -> Tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     num_particles = r.shape[0]
 
-    dt =                                sim_params.get("dt",DEFAULT_DT)
-    v0 =                                sim_params.get("v0",DEFAULT_V0)
+    dt =                                 sim_params.get("dt",DEFAULT_DT)
+    v0 =                                 sim_params.get("v0",DEFAULT_V0)
     translation_gamma =                  sim_params.get("translation_gamma",DEFAULT_TRANSLATION_GAMMA)
     translation_diffusion =              sim_params.get("translation_diffusion",DEFAULT_TRANSLATION_DIFFUSION)
     rotation_gamma =                     sim_params.get("rotation_gamma",DEFAULT_ROTATION_GAMMA)
     rotation_diffusion =                 sim_params.get("rotation_diffusion",DEFAULT_ROTATION_DIFFUSION)
-    omega =                             sim_params.get("omega",DEFAULT_OMEGA)
+    omega =                              sim_params.get("omega",DEFAULT_OMEGA)
 
     heading_vector = jnp.array([jnp.cos(theta),jnp.sin(theta)]).transpose()
     rand_key, zeta = translation_noise(rand_key,num_particles,translation_diffusion,dt)
-    r_dot = v0 * heading_vector + zeta/translation_gamma # should have shape (n,1,2).
+    r_dot = v0 * heading_vector + zeta/translation_gamma # should have shape (n,2).
 
     rand_key, xi = rotation_noise(rand_key, num_particles, rotation_diffusion, dt)
     theta_dot = omega + xi/rotation_gamma
@@ -102,190 +100,11 @@ def get_derivatives(
     return rand_key, r_dot, theta_dot
 get_derivatives = jit(get_derivatives)
 
-@jit
-def get_wall_positions(
-        wall_com: jnp.ndarray, 
-        wall_angle: jnp.ndarray, 
-        wall_start_rel_to_com: jnp.ndarray,
-        wall_end_rel_to_com: jnp.ndarray
-        ) -> Tuple[jnp.ndarray,jnp.ndarray]:
-    rotation_matrix = jnp.array([[jnp.cos(wall_angle), -jnp.sin(wall_angle)],
-                                [jnp.sin(wall_angle), jnp.cos(wall_angle)]])
-    # print("beg")
-    # print(wall_com.shape)
-    # print(wall_start_rel_to_com.shape)
-    # print(wall_end_rel_to_com.shape)
-    # print(rotation_matrix.shape)
-    # print("end")
-    return wall_com + wall_start_rel_to_com @ rotation_matrix, wall_com + wall_end_rel_to_com @ rotation_matrix
-    
-
-@jit
-def _jit_update_wall_positions(wall_correction_to_dr: jnp.ndarray, particle_gamma: float, wall_fluid_drag: float) -> jnp.ndarray:
-    """
-    Translates the entire WallHolder according to the total amount of impulse
-    it has experienced in a given timestep. Suppose each particle i experiences 
-    forces `f_i` from non-wall sources in time `dt`. Due to its fluid drag, it 
-    experiences velocity `f_i/\gamma_i` and moves by `f_i dt/\gamma_i`. Suppose
-    it collides with the wall for `d\tau <= dt` time. The wall exerts normal
-    force `n_i` and so leads to a correction of `c_i = n_i d\tau/\gamma_i` in 
-    the particle's position. The wall experiences a force `-n_i` for `d\tau` 
-    and has fluid drag `\gamma_w`. It then moves by `-n_id\tau/\gamma_w`. We 
-    can express this as 
-
-    `wall_correction = -n_i d\tau/\gamma_w = -c_i \gamma_i / \gamma_w`
-
-
-    Parameters
-    ----------
-    wall_correction_to_dr: jnp.ndarray
-        (W,2) Array specifying our wall's modificaiton to particles' position 
-        changes. wall_correction_to_dr[i,0] = `c_i`. 
-    particle_gamma: float
-        Specifies the fluid drag coefficient of the particles. 
-    """
-
-    return -jnp.sum(wall_correction_to_dr,axis=0) * particle_gamma / wall_fluid_drag
-
-@jit 
-def _jit_get_wall_rotation(
-    wall_com: jnp.ndarray,
-    r: jnp.ndarray,
-    wall_correction_to_dr: jnp.ndarray, 
-    particle_gamma: float, 
-    wall_rotational_drag: float, 
-    dt: float) -> jnp.ndarray:
-    r"""
-    We want to compute the angle `\theta` by which the wall object rotates
-    as a result of all the forces it experiences. Each of these forces is of
-    the form `fi = -c_i \gamma_i` (see _jit_update_wall_positions).
-    
-    Relative to the center of mass of the walls r_com, this yields a torque
-
-    `\tau_i = r x fi = r[0] * fi[1] - r[1] * fi[0]`
-
-    (implicitly, in the z direction, but everything is in the xy plane, so
-    we can treat this as a scalar). We assume that this translates directly
-    to a rotational velocity by a rotational drag `\gamma_R`, so 
-
-    `\omega = \sum_i \tau_i / \gamma_R`
-
-    Parameters
-    ----------
-    wall_com: jnp.ndarray
-        (2) Array specifying current COM of the wall object.
-    r: jnp.ndarray
-        (n,2) Array specifying the current positions of each particle. 
-    wall_correction_to_dr: jnp.ndarray
-        (n,2) Array specifying our wall's modificaiton to particles' position 
-        changes. wall_correction_to_dr[i,0] = `c_i`. 
-    particle_gamma: float
-        Specifies the fluid drag coefficient of the particles. 
-    wall_rotational_drag: float
-        Specifies wall rotational drag. 
-    
-    Returns
-    ----------
-    rotation_matrix: jnp.ndarray
-        (2,2) Array that can be dotted into our new wall coordinates
-        describing how it will rotate. 
-    """
-    relative_positions = (r - wall_com)
-    forces = - wall_correction_to_dr * particle_gamma
-    torques = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
-    omega = jnp.sum(torques) / wall_rotational_drag
-    return omega * dt
-    # return jnp.array([  [jnp.cos(omega*dt), -jnp.sin(omega*dt)],
-    #                     [jnp.sin(omega*dt), jnp.cos(omega*dt)]])
-
-@jit
-def _jit_get_collision_correction(
-        r: jnp.ndarray,
-        delta_r: jnp.ndarray,
-        wall_starts: jnp.ndarray,
-        wall_ends: jnp.ndarray,
-        ) -> jnp.ndarray:
-    """
-    Computes a correction to delta_r that ensures that no particles collide with
-    the given wall.
-    
-    Suppose we have W walls. Walls are parametrized as two (W,2) arrays 
-    describing their start and end points, with the line between these points
-    being the "wall". We treat particles as 0-size, and walls as having a
-    thickness Th. At any given timestep, we determine if a particle is nearby
-    to wall `w_i` parametrized by points `s_i,e_i` using two vectors: 
-    a vector `f_i = (e_i - s_i)/||e_i-s_i||`, and a normal unit vector `n_i` 
-    to the wall. Suppose a particle is at position r. We describe its position in 
-    the basis of "along the wall" and "normal from the wall". In particular, 
-    we compute  `f(r) = (r - m_i) @ f_i` as our distance along the wall, where
-    `m_i` is the midpoint `m_i = (e_i+s_i)/2` normalized so `f(s_i) = -0.5` and 
-    `f(e_i) = ||e_i-s_i|| = -0.5`. We additionally compute `n(r) = (r-s_i) @ n_i` 
-    to give our distance from the wall. The particle is in contact with the 
-    wall if abs(f(r)) < 0.5 and abs(n(r)) < Th. 
-
-    If a particle tries to move _through_ a wall and our timestep `dt` is fine
-    enough, then we can catch this motion by checking if (r+dr) is in contact
-    with the wall. If that is the case, we presume that the wall exerts a normal
-    force on the particle just enough to ensure that its final position is not
-    within Th of the wall by setting 
-
-    `r -> r + (Th - (r @ n_i)) n_i`
-    
-    which ensures (r @ n_i) = Th. 
-    
-
-    
-    Parameters
-    ----------
-    r: jnp.ndarray
-        Current positions of all particles. (n, 1, 2) Array.
-    delta_r: jnp.ndarray
-        Proposed update to positions of all particles, and
-        should be equal to r_dot * dt. 
-
-    Returns
-    ----------
-    correction: jnp.ndarray
-        (W,2) Correction to delta_r that should ensure that no 
-        final positions collide with the walls in this WallHolder. 
-    """
-
-    wall_midpoints = (wall_starts + wall_ends) / 2.
-    
-    wall_diffs = wall_ends - wall_starts
-    wall_lengths = jnp.linalg.norm(wall_diffs, axis=1)
-    wall_thickness = 1.
-    max_horizontal_distance_from_wall_center = 0.5 * wall_lengths + wall_thickness
-
-    fraction_along_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose()
-    rot90_arr = jnp.array([[0, -1], [1, 0]])
-    distance_from_wall_vec = (wall_diffs.transpose() / wall_lengths).transpose() @ rot90_arr.transpose()
-
-    r_relative_to_wall_starts = r[:,None,:] - wall_midpoints
-
-    r_dot_normal_wall = jnp.sum(r_relative_to_wall_starts * distance_from_wall_vec,axis=-1)
-    r_dot_horizontal_wall = jnp.sum(r_relative_to_wall_starts * fraction_along_wall_vec,axis=2)
-
-    dr_dot_normal_wall = jnp.sum(delta_r[:,None,:] * distance_from_wall_vec, axis=-1)
-
-    normal_dist_from_walls = jnp.abs(r_dot_normal_wall + dr_dot_normal_wall)
-
-    is_within_wall_parallel = jnp.abs(r_dot_horizontal_wall) < max_horizontal_distance_from_wall_center
-    is_close_to_wall_normal = normal_dist_from_walls < wall_thickness
-
-
-    hits_walls = is_within_wall_parallel & is_close_to_wall_normal
-
-    # wall_correction = jnp.sign(dr_dot_normal_wall) * (normal_dist_from_walls - wall_thickness)
-    wall_correction = (wall_thickness - normal_dist_from_walls)
-    wall_correction = (wall_correction * hits_walls)[:,:,None] * distance_from_wall_vec
-    wall_correction = jnp.sum(wall_correction,axis=1)
-
-    return wall_correction
-
 def run_sim(
         initial_positions: jnp.ndarray, 
         initial_heading_angles: jnp.ndarray,
+        polygons: List[ConvexPolygon],
+        centroids: List[jnp.ndarray],
         sim_params: dict = {},
         ) -> jnp.ndarray: 
     r"""
@@ -322,32 +141,16 @@ def run_sim(
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     tumble_rate =                       sim_params.get("tumble_rate",DEFAULT_TUMBLE_RATE)
-    wall_starts =                       sim_params.get("wall_starts", None)
-    wall_ends =                         sim_params.get("wall_ends", None)
-    return_history =                    sim_params.get("return_history", True)
-    pbc_size =                          sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
-    
-    assert ((wall_starts is None and wall_ends is None) or (len(wall_starts)==len(wall_ends)))
+    return_history =                    sim_params.get("return_history", DEFAULT_RETURN_HISTORY)
 
     r_history = []
     theta_history = []
-    walls_history = []
+    poly_vertex_history = []
     
-    wall_coms = []
-    wall_angles = []
-    rel_wall_starts = []
-    rel_wall_ends = []
-    for ws, we in zip(wall_starts, wall_ends):
-        # ws, we are (W, 2) arrays encoding start/end coords of each wall 
-        # the wall object
-        wall_com = jnp.mean((ws+we)/2)
+    angles = [0. for _ in polygons]
 
-        wall_angles.append(0.)
-        wall_coms.append(wall_com)
-        rel_wall_starts.append(ws - wall_com)
-        rel_wall_ends.append(we - wall_com)
-
-        walls_history.append([])
+    for _ in polygons:
+        poly_vertex_history.append([])
 
     rand_key = initial_random_key
 
@@ -366,17 +169,14 @@ def run_sim(
     next_reassignment_all_particles = (time_until_angle_reassignment/dt).astype(jnp.int32)
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    # walls = WallHolder(wall_starts,wall_ends,wall_fluid_drag_coefficient=10)
-
     for step in trange(num_steps):
-        rand_key, r, theta, wall_coms, wall_angles = do_many_sim_steps(rand_key, r, theta, sim_params, dt, wall_coms, wall_angles, rel_wall_starts, rel_wall_ends, pbc_size)
+        rand_key, r, theta, centroids, angles = do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles)
 
         if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
-            for i in range(len(wall_starts)):
-                wall_start, wall_end = get_wall_positions(wall_coms[i], wall_angles[i], rel_wall_starts[i], rel_wall_ends[i])
-                walls_history[i].append([wall_start,wall_end])
+            for i,poly in enumerate(polygons):
+                poly_vertex_history[i].append(poly.get_vertices(centroids[i], angles[i]))
 
         if step >= next_reassignment_event:
             reassign_which_particles = (step>=next_reassignment_all_particles)
@@ -392,89 +192,61 @@ def run_sim(
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    walls_history = [jnp.array(single_wall_history) for single_wall_history in walls_history]
+    poly_vertex_history = [jnp.array(single_history) for single_history in poly_vertex_history]
 
     if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history),walls_history)
+        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history)
     else:
-        return r, theta, jnp.array([[wall_starts,wall_ends]])
+        return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
 
-@jit
+# @jit
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
         r: jnp.ndarray, 
         theta: jnp.ndarray, 
         sim_params: dict, 
-        dt: float, 
-        wall_coms: List[jnp.ndarray], 
-        wall_angles: List[float], 
-        rel_wall_starts: List[jnp.ndarray], 
-        rel_wall_ends: List[jnp.ndarray],
-        pbc_size: float) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
-    particle_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
-    wall_gamma_list = sim_params.get("wall_gamma_list", [DEFAULT_WALL_GAMMA]*len(wall_coms))
-    wall_rotational_gamma_list = sim_params.get("wall_rotational_gamma_list", [DEFAULT_WALL_ROTATIONAL_GAMMA]*len(wall_coms))
-    wall_force_direction_list = sim_params.get("wall_force_direction", [1]*len(wall_coms))
+        polygons: List[ConvexPolygon],
+        centroids: List[jnp.ndarray], 
+        angles: List[float],
+        ) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
+    
+    dt = sim_params.get("dt", DEFAULT_DT)
+    box_size = sim_params.get("box_size", DEFAULT_BOX_SIZE)
+    translation_gamma = sim_params.get("translation_gamma", DEFAULT_TRANSLATION_GAMMA)
+    pbc_size = sim_params.get("pbc_size", DEFAULT_PERIODIC_BOUNDARY_SIZE)
 
-
-    # wall_angle_change = [0. for i in range(len(wall_coms))]
-    if not isinstance(wall_gamma_list, Iterable):
-        wall_gamma_list = [wall_gamma_list] * len(wall_coms)
-    if not isinstance(wall_rotational_gamma_list, Iterable):
-        wall_rotational_gamma_list = [wall_rotational_gamma_list] * len(wall_coms)
-    if not isinstance(wall_force_direction_list, Iterable):
-        wall_force_direction_list = [wall_force_direction_list] * len(wall_coms)
     for sub_step in range(MANY):
         rand_key, r_dot, theta_dot = get_derivatives(r,theta,rand_key,sim_params)
         delta_r = r_dot * dt
         delta_theta = theta_dot * dt
-        for wall_indx, (translational_wall_drag,rotational_wall_drag,force_direction) in enumerate(zip(wall_gamma_list,wall_rotational_gamma_list,wall_force_direction_list)):
-            wall_start, wall_end = get_wall_positions(wall_coms[wall_indx], wall_angles[wall_indx], rel_wall_starts[wall_indx], rel_wall_ends[wall_indx])
-            correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_start,wall_end)
+        for poly_indx, poly in enumerate(polygons):
+            mpv_corrections = poly.get_min_particle_push_vector(centroids[poly_indx], angles[poly_indx], r)
+            poly_com_adjustment = -jnp.sum(mpv_corrections,axis=0) * translation_gamma / poly.pos_gamma
+            poly_angle_adjustment = poly.get_rotation_from_wall_particle_interaction(centroids[poly_indx], r, mpv_corrections, translation_gamma)
 
-            wall_com_adjustment = _jit_update_wall_positions(correction,particle_gamma,translational_wall_drag)
-            wall_com_adjustment = jax.lax.clamp(-0.1*dt,wall_com_adjustment,0.1*dt)
-
-            wall_coms[wall_indx] = wall_coms[wall_indx] + wall_com_adjustment
-
-            wall_angles[wall_indx] += _jit_get_wall_rotation(
-                wall_coms[wall_indx],
-                r,
-                correction,
-                particle_gamma,
-                rotational_wall_drag, 
-                dt,
-            )
-
-            wall_start, wall_end = get_wall_positions(wall_coms[wall_indx], wall_angles[wall_indx], rel_wall_starts[wall_indx], rel_wall_ends[wall_indx])
-            correction = force_direction * _jit_get_collision_correction(r,delta_r,wall_start,wall_end)
-            delta_r += correction
-        r += delta_r
+            delta_r += mpv_corrections
+            centroids[poly_indx] += poly_com_adjustment
+            angles[poly_indx] += poly_angle_adjustment
+        
+        r = jax.lax.clamp(-box_size/2,r + delta_r,box_size/2)
         theta = theta + delta_theta
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
-    return rand_key, r, theta, wall_coms, wall_angles
-
-def wall_vecs_from_points(wall_points: jnp.ndarray,ordering=1) -> Tuple[jnp.ndarray, jnp.ndarray]:
-    assert ordering in [-1,1]
-    return wall_points,jnp.roll(wall_points,ordering,axis=0)
+    return rand_key, r, theta, centroids, angles
 
 
 def get_initial_fill_shape(
         shape_name: str,
-        shape, 
+        shape: jnp.ndarray, 
         box_size: float,
-        initial_positions, 
         overwrite_cache: bool = False
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
     
     while True:
         if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
-            # print(PROJECT_DIR)
-            # exit()
-            starting_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
-            starting_angles = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
+            initial_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
+            initial_headings = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
             shape_to_compare = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_shape.npy"))
             
             try:
@@ -497,208 +269,55 @@ def get_initial_fill_shape(
                     # User input is invalid
                     print("Invalid input. Please enter 'yes' or 'no'.")
         else:
-            wall_starts, wall_ends = wall_vecs_from_points(shape)
-            sim_params = {
-                "total_time": 100.,
-                "v0": 0.,
-                "tumble_rate": 1e-9,
-                "translation_gamma": 1,
-                "rotation_gamma": 0.1,
-                "wall_gamma_list": [jnp.inf],
-                "wall_rotational_gamma_list": [jnp.inf],
-                "wall_rotational_gamma_list": [jnp.inf],
-                "pbc_size": 10*box_size,
-                "return_history": True,
-                "do_animation": True,
-                "wall_starts": [wall_starts],
-                "wall_ends": [wall_ends],
-                "wall_force_direction": [-1],
-            }
-
-            initial_headings = rand.uniform(initial_random_key,(nparticles,),float,0,2*jnp.pi)
-
-            r_history,theta_history,wall_history = run_sim(initial_positions,initial_headings,sim_params)
-
-            starting_positions = jax.lax.clamp(-0.49*box_size,r_history[-1],0.49*box_size)
-            starting_angles = theta_history[-1]
+            poly, com = convex_polygon(shape, return_centroid=True)
             
-            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_r.npy"),starting_positions)
-            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_theta.npy"),starting_angles)
+            rand_key = initial_random_key
+            initial_positions = rand.uniform(rand_key,(DEFAULT_NUM_PARTICLES,2), float,-box_size/2,box_size/2)
+            initial_headings = rand.uniform(rand_key,(DEFAULT_NUM_PARTICLES,),float,0,2*jnp.pi)
+            
+            which_are_inside = poly.is_inside(com,0.,initial_positions)
+
+            while jnp.count_nonzero(which_are_inside)!=0:
+                print(f"Refreshing again. {jnp.count_nonzero(which_are_inside)} remain.")
+                rand_key, key = rand.split(rand_key)
+                
+                valid_initial_conditions = initial_positions[jnp.logical_not(which_are_inside)]
+                new_initial_positions = rand.uniform(key,(jnp.count_nonzero(which_are_inside),2),float,-box_size/2,box_size/2)
+                
+                initial_positions = jnp.concatenate((valid_initial_conditions, new_initial_positions), axis=0)
+                which_are_inside = poly.is_inside(com,0.,initial_positions)
+            
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_r.npy"),initial_positions)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_theta.npy"),initial_headings)
             jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_shape.npy"),shape)
 
-            do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
-            if do_animation:
-                animate_particles(r_history,theta_history,wall_history, 1.5*box_size,1.5*box_size,gif_filename=os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_ani.gif"))
-            
             # Break out of while loop if cache clear corrects assertion error
             break
 
-    return starting_positions,starting_angles
+    return initial_positions,initial_headings
 
 
-def sim_spike(
-        spike_name: str,
-        total_time: float,
-        v0: float,
-        translation_gamma: float,
-        translation_diffusion: float,
-        rotation_gamma: float,
-        rotation_diffusion: float,
-        omega: float,
-        tumble_rate: float,
-        box_size: float, 
-        wall_gamma: float,
-        wall_rotation_gamma: float,
-    ):
-    sim_params = {
-        "total_time": total_time,
-        "pbc_size": 2*box_size,
-        "v0": v0,
-        "translation_gamma": translation_gamma,
-        "translation_diffusion": translation_diffusion,
-        "rotation_gamma": rotation_gamma,
-        "rotation_diffusion": rotation_diffusion,
-        "omega": omega,
-        "tumble_rate": tumble_rate,
-        "wall_gamma_list": wall_gamma,
-        "wall_rotational_gamma_list": wall_rotation_gamma,
-        "wall_starts": wall_starts,
-        "wall_ends": wall_ends,
-        "do_animation": True,
-        "return_history": True
-    }
-
-
-    initial_positions = rand.uniform(initial_random_key, (nparticles,2),float,-0.4*box_size,0.4*box_size)
-
-    initial_positions, initial_heading_angles = get_initial_fill_shape(spike_name,right_triangle_shape_1,box_size,initial_positions)
-
-    assert len(initial_positions) >= nparticles
-    initial_positions = initial_positions[:nparticles]
-    initial_heading_angles = initial_heading_angles[:nparticles]
-
-
-    r_history,theta_history,wall_history = run_sim(initial_positions, initial_heading_angles, sim_params)
-
-    ### POST PROCESSING OF SIM RESULTS
-
-
-    wall_mid_x,wall_mid_y = jnp.mean(wall_history[0] - wall_history[0][0],axis=(1,2)).squeeze().transpose()
-    return_history = sim_params.get("return_history", DEFAULT_RETURN_HISTORY)
-    if return_history:
-        plt.figure()
-        plt.plot(wall_mid_x,label="Delta Mean X")
-        plt.plot(wall_mid_y/5,label="Delta Mean Y/5")
-        plt.legend()
-        plt.savefig("spike_motion.png")
-
-        plt.figure()
-
-        do_animation = sim_params.get("do_animation", DEFAULT_DO_ANIMATION)
-        if do_animation:
-            animate_particles(r_history,theta_history,[hist for hist in wall_history], 1.5*box_size,1.5*box_size)
-
-    
-    return jnp.mean(wall_mid_x)
 
 # AVERY WHY DID YOU DEFINE GLOBAL VARIABLES IN THE RUN PARAMETERS AAAAAAAA
+# LOOK AT ME I'M A GOOD LITTLE BOY
 
-box_size = 100.
-
-
-# x_offset = 0.1
-# half_height = 0.2
-# spike_shape = (box_size/2) * jnp.array([
-#         [-1+x_offset, -half_height],
-#         [-1+x_offset, half_height],
-#         [1+x_offset, half_height - half_height/3],
-#         [-0.7+x_offset, half_height - 2*half_height/3],
-#         [1+x_offset, half_height - 3*half_height/3],
-#         [-0.7+x_offset, half_height - 4*half_height/3],
-#         [1+x_offset, half_height - 5*half_height/3],
-#     ])
-
-right_triangle_shape_1 = (0.3*box_size) * (jnp.array([
-    [-0.3,0.5],
-    [0.2,0],
-    [-0.3,-0.5],
-]) + jnp.array([0.4,0.]))
-
-right_triangle_shape_2 = (0.3*box_size) * (jnp.array([
-    [-0.3,0.5],
-    [0.2,0],
-    [-0.3,-0.5],
-]) + jnp.array([-0.4,0.]))
-
-right_triangle_1_starts, right_triangle_1_ends = wall_vecs_from_points(right_triangle_shape_1,-1)
-right_triangle_2_starts, right_triangle_2_ends = wall_vecs_from_points(right_triangle_shape_2,-1)
-
-box_starts = (box_size/2)*jnp.array(BOUNDING_BOX_STARTS)
-box_ends = (box_size/2)*jnp.array(BOUNDING_BOX_ENDS)
-
-wall_starts = [right_triangle_1_starts, right_triangle_2_starts, box_starts]
-wall_ends = [right_triangle_1_ends, right_triangle_2_ends, box_ends]
-
-initial_mean_wall_position = jnp.mean((wall_starts[0]+wall_ends[0])/2,axis=0)
-
-from jax import value_and_grad
-diff_sim_spike = value_and_grad(sim_spike, (1, 3, 5, 7,))
-
-nparticles = 10000
-total_time = 2000.
-v0 = 2.
-translation_gamma = 1.
-translation_diffusion = 1e-2
-rotation_gamma = 0.1
-rotation_diffusion = 1e-4
-omega = 0.01*0
-tumble_rate = 1e-3
-wall_gamma = 10.
-wall_rotation_gamma = 500.
 
 def main():
+    single_right_triangle = (DEFAULT_BOX_SIZE/8) * jnp.array([[1.,0.],[0.,1.],[0.,-1.]])
 
-    for ws,we in zip(wall_starts,wall_ends):
-        for w1,w2 in zip(ws,we):
-            plt.plot([w1[0],w2[0]],[w1[1],w2[1]],c="k")
 
-    plt.savefig("wall_shape.png")
-
-    
-
-    for i in range(1):
-        val = sim_spike(
-            "single_right_triangle", 
-            total_time,
-            v0,
-            translation_gamma,
-            translation_diffusion,
-            rotation_gamma,
-            rotation_diffusion,
-            omega,
-            tumble_rate,
-            box_size,
-            [wall_gamma,jnp.inf],
-            [wall_rotation_gamma,jnp.inf],
+    r_0, theta_0 = get_initial_fill_shape(
+        "single_right_triangle",
+        single_right_triangle,
+        DEFAULT_BOX_SIZE
         )
+    poly, com = convex_polygon(single_right_triangle, return_centroid=True)
+    
+    poly.plot()
 
-        print(f"""
-        ——————————————————————————————————
-        [STAGE {i}]
-        End Mean Position: {val}
-        """)
-        
-        # print(f"""
-        # ——————————————————————————————————
-        # [STAGE {i}]
-        # End Mean Position: {val}
-        # v0: {v0}\t{learning_rate * d_v0}
-        # translation_gamma: {translation_gamma}\t{learning_rate * d_translation_gamma}
-        # translation_diffusion: {translation_diffusion}\t{learning_rate * d_translation_diffusion}
-        # rotation_gamma: {rotation_gamma}\t{learning_rate * d_rotation_gamma}
-        # rotation_diffusion: {rotation_diffusion}\t{learning_rate * d_rotation_diffusion}
-        # tumble_rate: {tumble_rate}\t{learning_rate * d_tumble_rate}
-        # """)
+    print(poly.is_inside(com, 0., r_0))
+    print(jnp.count_nonzero(poly.is_inside(com,0.,r_0)))
+
 
 if __name__ == "__main__":
     main()
