@@ -3,6 +3,9 @@ import jax
 import re
 import os
 
+from numpy import array as np_convert_to_array
+np_objarr = lambda x: np_convert_to_array(x,dtype="object")
+
 from collisions import sort_vertices_ccw, collide_oo, collide_ow
 
 from collections.abc import Iterable
@@ -244,22 +247,22 @@ def get_initial_fill_shape(
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
     
     while True:
-        if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy")) and not overwrite_cache:
-            initial_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_r.npy"))
-            initial_headings = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_theta.npy"))
-            shape_to_compare = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{shape_name}_shape.npy"))
+        if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_r.npy")) and not overwrite_cache:
+            initial_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_r.npy"),allow_pickle=True)
+            initial_headings = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_theta.npy"),allow_pickle=True)
+            comparison_list = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_shape.npy"),allow_pickle=True)
             
             try:
-                assert jnp.allclose(shape,shape_to_compare)
+                assert jnp.all(jnp.array([jnp.allclose(shape,shape_to_compare) for shape,shape_to_compare in zip(shape_list,comparison_list)]))
                 # Break out of while loop if assertion passes
                 break
-            except AssertionError:
+            except:
                 clear_cache = input('Mismatch between shape and cached version. Clear cache? [Y/n]: ') or "y"
                 if yes_no_pattern.match(clear_cache):
                     if clear_cache.lower() in ['y', 'yes', 'yeah', 'yup', 'yea']:
                         for filename in os.listdir(os.path.join(PROJECT_DIR, 'particle_distributions')):
                             # Check if the filename contains the shape name
-                            if shape_name in filename:
+                            if geometry_name in filename:
                                 # Remove the file
                                 os.remove(os.path.join(PROJECT_DIR, 'particle_distributions', filename))
                         overwrite_cache = True
@@ -269,13 +272,13 @@ def get_initial_fill_shape(
                     # User input is invalid
                     print("Invalid input. Please enter 'yes' or 'no'.")
         else:
-            poly, com = convex_polygon(shape, return_centroid=True)
+            poly_and_com_list = [convex_polygon(shape, return_centroid=True) for shape in shape_list]
             
             rand_key = initial_random_key
             initial_positions = rand.uniform(rand_key,(DEFAULT_NUM_PARTICLES,2), float,-box_size/2,box_size/2)
             initial_headings = rand.uniform(rand_key,(DEFAULT_NUM_PARTICLES,),float,0,2*jnp.pi)
             
-            which_are_inside = poly.is_inside(com,0.,initial_positions)
+            which_are_inside = jnp.any(jnp.array([poly.is_inside(com,0.,initial_positions) for poly,com in poly_and_com_list]),axis=0)
 
             while jnp.count_nonzero(which_are_inside)!=0:
                 print(f"Refreshing again. {jnp.count_nonzero(which_are_inside)} remain.")
@@ -285,11 +288,11 @@ def get_initial_fill_shape(
                 new_initial_positions = rand.uniform(key,(jnp.count_nonzero(which_are_inside),2),float,-box_size/2,box_size/2)
                 
                 initial_positions = jnp.concatenate((valid_initial_conditions, new_initial_positions), axis=0)
-                which_are_inside = poly.is_inside(com,0.,initial_positions)
+                which_are_inside = jnp.any(jnp.array([poly.is_inside(com,0.,initial_positions) for poly,com in poly_and_com_list]),axis=0)
             
-            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_r.npy"),initial_positions)
-            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_theta.npy"),initial_headings)
-            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{shape_name}_shape.npy"),shape)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{geometry_name}_r.npy"),initial_positions,allow_pickle=True)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{geometry_name}_theta.npy"),initial_headings,allow_pickle=True)
+            jnp.save(os.path.join(PROJECT_DIR, f"particle_distributions/{geometry_name}_shape.npy"),np_objarr(shape_list),allow_pickle=True)
 
             # Break out of while loop if cache clear corrects assertion error
             break
