@@ -1,6 +1,9 @@
+import jax
 import jax.numpy as jnp
 from typing import List, Tuple, Union
 import math
+
+from objects import ConvexPolygon
 
 def sort_vertices_ccw(coords):
     # Find the centroid of the polygon
@@ -33,84 +36,50 @@ def is_separating_axis(axis: jnp.ndarray, o1_v: jnp.ndarray, o2_v: jnp.ndarray) 
     o2_proj_min, o2_proj_max = project(o2_v, axis)
     return o1_proj_max < o2_proj_min or o2_proj_max < o1_proj_min
 
-# def collide_oo(o1_v: List[Tuple[float, float]], o2_v: List[Tuple[float, float]]) -> Tuple[bool, Union[jnp.ndarray, None]]:
-#     '''
-#     Returns True and the MPV (Minimum Push Vector) if object1 and object2 collide.
-#     Otherwise, return False and None.
-    
-#     o1_v and o2_v are lists of ordered pairs, the vertices of two convex polygons.
-#     '''
-#     o1_v = jnp.array(o1_v)
-#     o2_v = jnp.array(o2_v)
-
-#     for i in range(len(o1_v)):
-#         edge = o1_v[i] - o1_v[i - 1]
-#         axis = jnp.array([-edge[1], edge[0]])
-#         if is_separating_axis(axis, o1_v, o2_v):
-#             return False, None
-
-#     for i in range(len(o2_v)):
-#         edge = o2_v[i] - o2_v[i - 1]
-#         axis = jnp.array([-edge[1], edge[0]])
-#         if is_separating_axis(axis, o1_v, o2_v):
-#             return False, None
-
-#     return True, jnp.array([0, 0])  # This implementation does not compute the actual MPV.
-
-def collide_oo(o1_v: List[Tuple[float, float]], o2_v: List[Tuple[float, float]]) -> Tuple[bool, Union[Tuple[jnp.ndarray, jnp.ndarray], None]]:
+@jax.jit
+def collide_oo(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, o2: ConvexPolygon, c2: jnp.ndarray, a2: float) -> Tuple[bool, Tuple[jnp.ndarray, jnp.ndarray]]:
     '''
     Returns True and a pair of antiparallel MPVs if object1 and object2 collide.
-    Otherwise, return False and None.
+    Otherwise, return False and [UNDETERMINED]
 
-    o1_v and o2_v are lists of ordered pairs, the vertices of two convex polygons.
+    o1 and o2 are two ConvexPolygon objects, which we will try to check for collision. 
+    c1 and c2 are the centroids of the ConvexPolygons, a1 and a2 are their angles.
     '''
-    # Convert input lists of vertices to JAX arrays
-    o1_v = jnp.array(o1_v)
-    o2_v = jnp.array(o2_v)
-
     # Initialize variables to store the minimum overlap and the corresponding separating axis
     min_overlap = float('inf')
     min_axis = None
+    
+    # returns vertices, normals, projections (of vertices on these normals)
+    v1,n1,p1 = o1.get_vertices_normals_proj_jax(c1,a1)
+    v2,n2,p2 = o2.get_vertices_normals_proj_jax(c2,a2)
 
-    # Loop over both polygons (o1_v and o2_v)
-    for polygon in (o1_v, o2_v):
-        # Loop over the edges of the current polygon
-        for i in range(len(polygon)):
-            # Calculate the edge vector
-            edge = polygon[i] - polygon[i - 1]
-            # Calculate the normal vector to the edge (separating axis)
-            axis = jnp.array([edge[1], -edge[0]])
-            axis = axis / jnp.linalg.norm(axis)
+    # produce a sequence of (v_i,v_j) Arrays encoding the 
+    # projection of the vertices of polygon i on polygon j's
+    # normals. 
+    p11 = v1 @ n1.transpose()
+    p21 = v2 @ n1.transpose()
 
-            # Project both polygons onto the separating axis
-            o1_proj_min, o1_proj_max = project(o1_v, axis)
-            o2_proj_min, o2_proj_max = project(o2_v, axis)
+    # compute min and max projections over all vertices
+    min_p11,max_p11 = jnp.min(p11,axis=0),jnp.max(p11,axis=0)
+    min_p21,max_p21 = jnp.min(p21,axis=0),jnp.max(p21,axis=0)
 
-            # Check if the projections are disjoint, which means there is a separating axis
-            if o1_proj_max < o2_proj_min or o2_proj_max < o1_proj_min:
-                # If there is a separating axis, the polygons do not collide, return False and None
-                return False, None
+    # We have two intervals [p11min,p11max], [p21min,p21max] and want to 
+    # either return False, (_,_) if they don't overlap, or we want to determine
+    # the amount of overlap between them. This should be given by 
+    # p11max-p21min or p21max-p11min, but can be generally given by taking the min
+    # of the two. If either of these quantities is negative, we don't want to
+    # correct any of the walls, so we clamp it to 0. 
+    iolap_1 = jax.lax.clamp(0.,jnp.minimum(max_p11-min_p21, max_p21-min_p11),float("inf")) # (v1,) Array
 
-            # Calculate the overlap between the projections on the current axis
-            overlap = o1_proj_max - o2_proj_min
+    mindex_1 = jnp.argmin(iolap_1)
 
-            # If the current overlap is smaller than the previously found minimum, update the minimum overlap and axis
-            if jnp.abs(overlap) < jnp.abs(min_overlap):
-                min_overlap = overlap
-                min_axis = axis
-                # min_p = p
+    # wanted to check something like iolap_1[mindex_1] <= iolap_2[mindex_2]
+    # but experimentally it seems that these two are always equal... so we
+    # ignore the check and just return
 
-    # Normalize the separating axis and multiply by the overlap to get the MPV
-    # Multiply by p to ensure correct direction of separation
-    mpv = min_axis * min_overlap # * p
+    min_correction_if_moving_only_o1 = iolap_1[mindex_1] * n1[mindex_1]
 
-    # Divide the MPV by 2 and return a pair of antiparallel vectors
-    mpv1 = (-mpv / 2)
-    mpv2 = (-mpv1)
-
-    # Return True and the pair of antiparallel MPVs if the polygons collide
-    return True, (mpv1, mpv2)
-
+    return min_correction_if_moving_only_o1/2, -min_correction_if_moving_only_o1/2
 
 def collide_op():
     pass
