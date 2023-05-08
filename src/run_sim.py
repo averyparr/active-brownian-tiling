@@ -230,6 +230,11 @@ def do_many_sim_steps(
             delta_r += mpv_corrections
             centroids[poly_indx] += poly_com_adjustment
             angles[poly_indx] += poly_angle_adjustment
+
+            for op_indx in range(poly_indx):
+                correct_op, correct_poly = collide_oo(polygons[op_indx],centroids[op_indx],angles[op_indx],poly,centroids[poly_indx],angles[poly_indx])
+                centroids[poly_indx] += correct_poly
+                centroids[op_indx] += correct_op
         
         r = jax.lax.clamp(-box_size/2,r + delta_r,box_size/2)
         theta = theta + delta_theta
