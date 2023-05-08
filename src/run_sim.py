@@ -164,6 +164,12 @@ def run_sim(
     r = initial_positions.copy()
     theta = initial_heading_angles.copy()
 
+    r_history.append(r)
+    theta_history.append(theta)
+    for i,poly in enumerate(polygons):
+        poly_vertex_history[i].append(poly.get_vertices(centroids[i], angles[i]))
+    
+
     # We know that angle reassignment is done as a Poisson process, so the time
     # between events is distributed as Expo(tumble_rate).
     
