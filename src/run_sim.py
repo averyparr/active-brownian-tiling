@@ -4,9 +4,10 @@ import re
 import os
 
 from numpy import array as np_convert_to_array
+
 np_objarr = lambda x: np_convert_to_array(x,dtype="object")
 
-from collisions import sort_vertices_ccw, collide_oo, collide_ow
+from collisions import sort_vertices_ccw, collide_ow
 
 from collections.abc import Iterable
 import jax.numpy as jnp
@@ -19,7 +20,7 @@ from tqdm import trange
 
 from constants import *
 
-from objects import ConvexPolygon, convex_polygon
+from objects import ConvexPolygon, convex_polygon,glue_polygons_together
 
 
 from visualization import animate_particles
@@ -142,6 +143,7 @@ def run_sim(
     time.
     """
 
+    num_particles =                     sim_params.get("num_particles",DEFAULT_NUM_PARTICLES)
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     tumble_rate =                       sim_params.get("tumble_rate",DEFAULT_TUMBLE_RATE)
@@ -158,8 +160,6 @@ def run_sim(
 
     rand_key = initial_random_key
 
-    num_particles = initial_heading_angles.shape[0]
-    assert initial_positions.shape == (num_particles,2)
     num_steps = int(total_time / dt/MANY)
     
     if hell:
@@ -169,8 +169,10 @@ def run_sim(
         r_hell = None
         hell_q = None
 
-    r = initial_positions.copy()
-    theta = initial_heading_angles.copy()
+    r = initial_positions.copy()[:num_particles]
+    theta = initial_heading_angles.copy()[:num_particles]
+
+    assert r.shape == (sim_params["num_particles"],2)
 
     r_history.append(r)
     theta_history.append(theta)
@@ -215,7 +217,7 @@ def run_sim(
         return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history, r_hell)
     else:
         return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
-
+# marker
 @jit
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
@@ -242,7 +244,7 @@ def do_many_sim_steps(
         for poly_indx, poly in enumerate(polygons):
             mpv_corrections = poly.get_min_particle_push_vector(centroids[poly_indx], angles[poly_indx], r)
             poly_com_adjustment = -jnp.sum(mpv_corrections,axis=0) * translation_gamma / poly.pos_gamma
-            poly_angle_adjustment = poly.get_rotation_from_wall_particle_interaction(centroids[poly_indx], r, mpv_corrections, translation_gamma)
+            poly_angle_adjustment = poly.get_rotation_from_wall_particle_interaction(centroids[poly_indx], angles[poly_indx], r, mpv_corrections, translation_gamma)
 
             delta_r += mpv_corrections
             centroids[poly_indx] += poly_com_adjustment
@@ -250,13 +252,12 @@ def do_many_sim_steps(
             
             wall_com_correction, wall_rot_correction = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
             angles[poly_indx] += wall_rot_correction
-            wall_com_correction, wall_rot_correction = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
-            centroids[poly_indx] += wall_com_correction
+            centroids[poly_indx] += wall_com_correction * 0.1
 
             for op_indx in range(poly_indx):
-                correct_op, correct_poly = collide_oo(polygons[op_indx],centroids[op_indx],angles[op_indx],poly,centroids[poly_indx],angles[poly_indx])
-                centroids[poly_indx] += correct_poly
-                centroids[op_indx] += correct_op
+                correct_op, correct_poly = polygons[op_indx].collide_oo_wrapper(centroids[op_indx],angles[op_indx],poly,centroids[poly_indx],angles[poly_indx])
+                centroids[poly_indx] -= correct_poly
+                centroids[op_indx] -= correct_op
                 
             if r_hell is not None:
                 hell_q = hell_q + poly.hell_query(centroids[poly_indx], angles[poly_indx], r, cutoff=hell_cutoff)
@@ -347,33 +348,51 @@ def get_initial_fill_shape(
 
 
 def main():
-    square = jnp.array([[20.,20.],[-20.,20.],[-20.,-20.],[20.,-20]]) + jnp.array([-15,0])
-    triangle = jnp.array([[-20.,20.],[-20.,-20.],[20.,-20.]]) + jnp.array([25,-25])
+    # t1 = jnp.array([[-10.,-10.],[10.,-10.],[5.,-5],[-10.,-5]])
+    # t2 = jnp.array([[-10.,-10.],[-5.,-10.],[-5.,5.],[-10.,10.]])
+
+    # t3 = jnp.array([[-10.,-10.],[10.,-10.],[5.,-5],[-10.,-5]]) - jnp.array([6.,6.])
+    # t4 = jnp.array([[-10.,-10.],[-5.,-10.],[-5.,5.],[-10.,10.]]) - jnp.array([6.,6.])
+
+    # r_0, theta_0 = get_initial_fill_shape(
+    #     "two_arrows",
+    #     [t1, t2, t3, t4],
+    #     DEFAULT_BOX_SIZE,
+    #     overwrite_cache=True
+    #     )
+
+    # glu1, c1 = glue_polygons_together([t1,t2])
+    # glu2, c2 = glue_polygons_together([t3,t4])
 
 
+    triangle = jnp.array([[-10.,-10.],[10.,-10.],[-10.,10.]])
     r_0, theta_0 = get_initial_fill_shape(
-        "triangle_and_square",
-        [square,triangle],
+        "single_triangle",
+        [triangle],
         DEFAULT_BOX_SIZE,
-        overwrite_cache=True,
-        sim_params = {"num_particles": 10000}
-        )
-    p1, c1 = convex_polygon(square, return_centroid=True)
-    p2, c2 = convex_polygon(triangle, return_centroid=True)
+        overwrite_cache=True
+    )
+    glu, c = glue_polygons_together([triangle])
     
     sim_params = {
-        "num_particles": 3,
-        "total_time": 100.,
+        "num_particles": 10000,
+        "total_time": 1000.,
         "do_animation": True,
         "return_history": True,
-        "dt": 0.01
+        "omega": 1e-6,
+        "v0": 1.,
+        "rotation_diffusion": 1e-3
         }
 
-    r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [p1,p2], [c1,c2], sim_params, hell=True)
+    r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
-    animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE)
-    
-    print(jnp.sum(jnp.heaviside(-r_hell,0),axis=0))
+
+
+    # r_0 = 0*r_0
+    # theta_0 = 0*theta_0 - 3*jnp.pi/4
+    # r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu1,glu2], [c1,c2], sim_params, hell=False)
+
+    animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=sim_params["omega"])
 
 
 if __name__ == "__main__":
