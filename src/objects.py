@@ -1,6 +1,5 @@
-from typing import List, Tuple, Union
+from typing import Tuple
 import math
-import numpy as np
 import jax.numpy as jnp
 from jax import jit,tree_util
 
@@ -37,7 +36,8 @@ class ConvexPolygon:
 
 tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0), None), lambda _, xs: ConvexPolygon(xs[0], xs[1]))
 
-def sort_vertices_ccw(coords):
+def sort_vertices_ccw(coords: jnp.ndarray) -> jnp.ndarray:
+    coords = jnp.array(coords)
     # Find the centroid of the polygon
     x = [c[0] for c in coords]
     y = [c[1] for c in coords]
@@ -57,7 +57,8 @@ def sort_vertices_ccw(coords):
 
     return sorted_vertices
 
-def is_convex_polygon(coords):
+def is_convex_polygon(coords: jnp.ndarray) -> bool:
+    coords = jnp.ndarray(coords)
     # Check that there are at least three vertices
     if len(coords) < 3:
         return False
@@ -76,7 +77,7 @@ def is_convex_polygon(coords):
     
     return True
 
-def vertices_to_polygon(vertices) -> ConvexPolygon:
+def vertices_to_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
     vertices = jnp.array(vertices)
 
     sorted_vertices = jnp.array(sort_vertices_ccw(vertices))
