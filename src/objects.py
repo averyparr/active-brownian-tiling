@@ -163,7 +163,7 @@ def is_convex_polygon(coords: jnp.ndarray) -> bool:
     
     return True
 
-def convex_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
+def convex_polygon(vertices: jnp.ndarray, return_centroid: bool = False) -> Union[ConvexPolygon,Tuple[ConvexPolygon,jnp.ndarray]]:
     vertices = jnp.array(vertices)
 
     sorted_vertices = jnp.array(sort_vertices_ccw(vertices))
@@ -180,5 +180,7 @@ def convex_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
     
     normals_0 = jnp.array(normals)
     vertices_0 = jnp.array(sorted_vertices - centroid)
-
-    return ConvexPolygon(normals_0, vertices_0, float("inf"), float("inf"))
+    if return_centroid:
+        return ConvexPolygon(normals_0, vertices_0, DEFAULT_WALL_GAMMA, DEFAULT_WALL_ROTATIONAL_GAMMA), centroid
+    else:
+        return ConvexPolygon(normals_0, vertices_0, DEFAULT_WALL_GAMMA, DEFAULT_WALL_ROTATIONAL_GAMMA)
