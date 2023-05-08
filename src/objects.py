@@ -11,9 +11,11 @@ class ConvexPolygon:
     compatible. Call `vertices_to_polygon` to get 
     proper constructor functionality. 
     '''
-    def __init__(self, normals_0, vertices_0) -> None:
+    def __init__(self, normals_0: jnp.ndarray, vertices_0: jnp.ndarray, pos_gamma: float, rot_gamma: float) -> None:
         self.normals_0 = normals_0
         self.vertices_0 = vertices_0
+        self.pos_gamma = pos_gamma
+        self.rot_gamma = rot_gamma
         pass
     
     @jit
@@ -34,7 +36,7 @@ class ConvexPolygon:
         
         return vertices, normals, projections
 
-tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0), None), lambda _, xs: ConvexPolygon(xs[0], xs[1]))
+tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0, s.pos_gamma, s.rot_gamma), None), lambda _, xs: ConvexPolygon(xs[0], xs[1], xs[2], xs[3]))
 
 def sort_vertices_ccw(coords: jnp.ndarray) -> jnp.ndarray:
     coords = jnp.array(coords)
@@ -95,4 +97,4 @@ def convex_polygon(vertices: jnp.ndarray) -> ConvexPolygon:
     normals_0 = jnp.array(normals)
     vertices_0 = jnp.array(sorted_vertices - centroid)
 
-    return ConvexPolygon(normals_0, vertices_0)
+    return ConvexPolygon(normals_0, vertices_0, float("inf"), float("inf"))
