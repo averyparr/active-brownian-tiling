@@ -2,6 +2,40 @@ from typing import List, Tuple, Union
 import math
 import numpy as np
 import jax.numpy as jnp
+from jax import jit,tree_util
+
+
+class ConvexPolygon:
+    '''
+    A convex polygon, defined by a set of vertices. 
+    Note that this is a named tuple to make it JAX
+    compatible. Call `vertices_to_polygon` to get 
+    proper constructor functionality. 
+    '''
+    def __init__(self, normals_0, vertices_0) -> None:
+        self.normals_0 = normals_0
+        self.vertices_0 = vertices_0
+        pass
+    
+    @jit
+    def get_vertices_normals_proj_jax(self, centroid: jnp.array, angle: float) -> Tuple[jnp.array, jnp.array, jnp.array]:
+        '''
+        Returns a tuple of arrays: (vertices, normals, projections) where vertices 
+        contains the current positions of all the vertices, normals contains the current 
+        set of properly oriented normals, and projections contains the projected location 
+        of each edge onto its respective normal.
+        '''
+        cos_theta = jnp.cos(angle)
+        sin_theta = jnp.sin(angle)
+        rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
+        
+        vertices = self.vertices_0 @ rotation_matrix + centroid
+        normals = self.normals_0 @ rotation_matrix
+        projections = jnp.einsum('ij,ij->i', vertices, normals)
+        
+        return vertices, normals, projections
+
+tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0), None), lambda _, xs: ConvexPolygon(xs[0], xs[1]))
 
 def sort_vertices_ccw(coords):
     # Find the centroid of the polygon
@@ -42,107 +76,22 @@ def is_convex_polygon(coords):
     
     return True
 
+def vertices_to_polygon(vertices) -> ConvexPolygon:
+    vertices = jnp.array(vertices)
 
-class ConvexPolygon():
-    '''
-    A convex polygon, defined by a set of vertices
-    '''
-    def __init__(self, vertices_init) -> None:
-        
-        sorted_vertices = np.array(sort_vertices_ccw(vertices_init))
-        
-        assert is_convex_polygon(sorted_vertices), "vertices_init list does not define a convex polygon"
-        
-        normals = []
-        
-        for i in range(sorted_vertices.shape[0]):
-            edge = sorted_vertices[i] - sorted_vertices[i-1]
-            normals.append([edge[1], -edge[0]] / np.linalg.norm([edge[1], -edge[0]]))
-        
-        centroid = jnp.array(np.sum(sorted_vertices, axis=0) / sorted_vertices.shape[0])
-        
-        # self.centroid = jnp.array(np.sum(sorted_vertices, axis=0) / sorted_vertices.shape[0])
-        # self.angle = 0
-        self.normals_0 = jnp.array(normals)
-        self.vertices_rel = jnp.array(sorted_vertices - centroid)
-        pass
+    sorted_vertices = jnp.array(sort_vertices_ccw(vertices))
 
-    def get_vertices_normals_proj_jax(self, centroid: jnp.array, angle: float) -> Tuple[jnp.array, jnp.array, jnp.array]:
-        '''
-        Returns a tuple of arrays: (vertices, normals, projections) where vertices 
-        contains the current positions of all the vertices, normals contains the current 
-        set of properly oriented normals, and projections contains the projected location 
-        of each edge onto its respective normal.
-        '''
-        cos_theta = jnp.cos(angle)
-        sin_theta = jnp.sin(angle)
-        rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
-        
-        vertices = jnp.dot(self.vertices_rel, rotation_matrix) + centroid
-        normals = jnp.dot(self.normals_0, rotation_matrix)
-        projections = jnp.einsum('ij,ij->i', vertices, normals)
-        
-        return vertices, normals, projections
-    
-    # DO NOT USE ANYTHING BELOW THIS LINE IN JAX
+    assert is_convex_polygon(sorted_vertices), "vertices_init list does not define a convex polygon"
 
-    # def update_position(self, dr):
-    #     '''
-    #     Updates the centroid, translating by the vector dr. DONT USE THESE IF YOU WANT TO JAX.
-    #     '''
-    #     self.centroid += dr
-    #     pass
+    normals = []
+        
+    for i in range(sorted_vertices.shape[0]):
+        edge = sorted_vertices[i] - sorted_vertices[i-1]
+        normals.append(jnp.array([edge[1], -edge[0]]) / jnp.linalg.norm(edge))
     
-    # def update_angle(self, dtheta):
-    #     '''
-    #     Updates the angle, rotating by the angle dtheta. DONT USE THESE IF YOU WANT TO JAX.
-    #     '''
-    #     self.angle += dtheta
-    #     pass
+    centroid = jnp.mean(sorted_vertices, axis=0)
     
-    # def get_vertices_normals_proj(self):
-    #     '''
-    #     Returns a tuple of arrays: (vertices, normals, projections) where vertices 
-    #     contains the current positions of all the vertices, normals contains the current 
-    #     set of properly oriented normals, and projections contains the projected location 
-    #     of each edge onto its respective normal.
-    #     '''
-    #     cos_theta = jnp.cos(self.angle)
-    #     sin_theta = jnp.sin(self.angle)
-    #     rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
-        
-    #     vertices = jnp.dot(self.vertices_rel, rotation_matrix) + self.centroid
-    #     normals = jnp.dot(self.normals_0, rotation_matrix)
-    #     projections = jnp.einsum('ij,ij->i', vertices, normals)
-        
-    #     return vertices, normals, projections
-        
-    # def get_vertices(self):
-    #     '''
-    #     Returns an array of the current location of vertices, appropriately translated
-    #     and rotated with respect to self.centroid and self.angle.
-    #     '''
-    #     cos_theta = jnp.cos(self.angle)
-    #     sin_theta = jnp.sin(self.angle)
-    #     rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
-        
-    #     vertices = jnp.dot(self.vertices_rel, rotation_matrix) + self.centroid
-        
-    #     return vertices
-    
-    # def get_normals(self):
-    #     '''
-    #     Returns an array of the current normal vectors to the polygon edges, appropriately
-    #     rotated by self.angle.
-    #     '''
-        
-    #     cos_theta = jnp.cos(self.angle)
-    #     sin_theta = jnp.sin(self.angle)
-    #     rotation_matrix = jnp.array([[cos_theta, -sin_theta], [sin_theta, cos_theta]])
-        
-    #     normals = jnp.dot(self.normals_0, rotation_matrix)
-        
-    #     return normals
-        
-   
-        
+    normals_0 = jnp.array(normals)
+    vertices_0 = jnp.array(sorted_vertices - centroid)
+
+    return ConvexPolygon(normals_0, vertices_0)
