@@ -109,6 +109,7 @@ def run_sim(
         polygons: List[ConvexPolygon],
         centroids: List[jnp.ndarray],
         sim_params: dict = {},
+        hell: bool = False
         ) -> jnp.ndarray: 
     r"""
     We work with two-dimensional Active Brownian Particles (ABPs). 
@@ -160,6 +161,13 @@ def run_sim(
     num_particles = initial_heading_angles.shape[0]
     assert initial_positions.shape == (num_particles,2)
     num_steps = int(total_time / dt/MANY)
+    
+    if hell:
+        r_hell = jnp.zeros((num_particles,2),float)
+        hell_q = jnp.zeros((num_particles,),float)
+    else:
+        r_hell = None
+        hell_q = None
 
     r = initial_positions.copy()
     theta = initial_heading_angles.copy()
@@ -179,7 +187,7 @@ def run_sim(
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
     for step in trange(num_steps):
-        rand_key, r, theta, centroids, angles = do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles)
+        rand_key, r, theta, centroids, angles, r_hell = do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles, hell_q, r_hell)
 
         if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
@@ -204,7 +212,7 @@ def run_sim(
     poly_vertex_history = [jnp.array(single_history) for single_history in poly_vertex_history]
 
     if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history)
+        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history, r_hell)
     else:
         return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
 
@@ -217,6 +225,9 @@ def do_many_sim_steps(
         polygons: List[ConvexPolygon],
         centroids: List[jnp.ndarray], 
         angles: List[float],
+        hell_q: jnp.ndarray = None,
+        r_hell: jnp.ndarray = None,
+        hell_cutoff: float = 0.1
         ) -> Tuple[jnp.ndarray,jnp.ndarray,jnp.ndarray]:
     
     dt = sim_params.get("dt", DEFAULT_DT)
@@ -238,20 +249,34 @@ def do_many_sim_steps(
             angles[poly_indx] += poly_angle_adjustment
             
             wall_com_correction, wall_rot_correction = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
-            centroids[poly_indx] += wall_com_correction
             angles[poly_indx] += wall_rot_correction
+            wall_com_correction, wall_rot_correction = collide_ow(poly, centroids[poly_indx], angles[poly_indx], box_size/2) # correct for object-wall collisions
+            centroids[poly_indx] += wall_com_correction
 
             for op_indx in range(poly_indx):
                 correct_op, correct_poly = collide_oo(polygons[op_indx],centroids[op_indx],angles[op_indx],poly,centroids[poly_indx],angles[poly_indx])
                 centroids[poly_indx] += correct_poly
                 centroids[op_indx] += correct_op
+                
+            if r_hell is not None:
+                hell_q = hell_q + poly.hell_query(centroids[poly_indx], angles[poly_indx], r, cutoff=hell_cutoff)
+        
         
         r = jax.lax.clamp(-box_size/2,r + delta_r,box_size/2)
         theta = theta + delta_theta
         
         if pbc_size is not None:
             r = jnp.mod(r + pbc_size/2., pbc_size) - pbc_size/2.
-    return rand_key, r, theta, centroids, angles
+            
+        if r_hell is not None:
+            r_abs = jnp.abs(r)
+            hell_q += jnp.max(jnp.heaviside(hell_cutoff - (box_size/2 - r_abs), 0.), axis=1) # Summon demons from the walls
+            
+            hell_q = jax.lax.clamp(0., hell_q - 1., 1.) # Only send particles with multiple collisions to hell
+            r_hell += jnp.outer(hell_q, jnp.array([0.,-(box_size * 2.)])) # Hell is below the box
+            r += r_hell
+        
+    return rand_key, r, theta, centroids, angles, r_hell
 
 
 def get_initial_fill_shape(
@@ -334,15 +359,18 @@ def main():
     p2, c2 = convex_polygon(triangle, return_centroid=True)
     
     sim_params = {
-        "num_particles": 10000,
-        "total_time": 1000.,
+        "num_particles": 3,
+        "total_time": 100.,
         "do_animation": True,
         "return_history": True,
+        "dt": 0.01
         }
 
-    r_history, theta_history, poly_history = run_sim(r_0, theta_0, [p1,p2], [c1,c2], sim_params)
+    r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [p1,p2], [c1,c2], sim_params, hell=True)
 
     animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE)
+    
+    print(jnp.sum(jnp.heaviside(-r_hell,0),axis=0))
 
 
 if __name__ == "__main__":

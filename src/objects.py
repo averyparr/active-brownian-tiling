@@ -103,6 +103,24 @@ class ConvexPolygon:
         forces = - poly_correction_to_particles * particle_gamma
         torques_dt = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
         return jnp.sum(torques_dt) / self.rot_gamma
+    
+    @jit
+    def hell_query(self, centroid: jnp.ndarray, angle: float, r: jnp.ndarray, cutoff: float=0.1) -> jnp.ndarray:
+        '''
+        Returns a (n,) array of 1s and 0s with a 1 in each position where a particle 
+        might be crushed by the polygon (close to a wall).
+        '''
+        
+        _, normals, projections = self.get_vertices_normals_proj_jax(centroid, angle)
+        
+        bacteria_projection = r @ normals.transpose() #(n,2) x (2, v) -> (n,v) Array
+        only_negative_projections = lax.clamp(-float("inf"),bacteria_projection - (projections + cutoff),0.) # (n,v) Array
+        
+        max_mpv = jnp.max(only_negative_projections, axis=1) #(n, Array); I know this is inefficient but can't get the better way to jax
+        
+        hell_q = jnp.heaviside(-max_mpv, 0.) # (n,) Array
+        
+        return hell_q
         
     def is_inside(self, centroid: jnp.ndarray, angle: float, r: jnp.ndarray) -> jnp.ndarray:
         _, normals, polygon_projections = self.get_vertices_normals_proj_jax(centroid, angle)
