@@ -1,7 +1,7 @@
 from typing import Tuple
 import math
 import jax.numpy as jnp
-from jax import jit,tree_util
+from jax import jit,tree_util,lax
 
 
 class ConvexPolygon:
@@ -19,7 +19,7 @@ class ConvexPolygon:
         pass
     
     @jit
-    def get_vertices_normals_proj_jax(self, centroid: jnp.array, angle: float) -> Tuple[jnp.array, jnp.array, jnp.array]:
+    def get_vertices_normals_proj_jax(self, centroid: jnp.ndarray, angle: float) -> Tuple[jnp.array, jnp.array, jnp.array]:
         '''
         Returns a tuple of arrays: (vertices, normals, projections) where vertices 
         contains the current positions of all the vertices, normals contains the current 
@@ -35,6 +35,18 @@ class ConvexPolygon:
         projections = jnp.einsum('ij,ij->i', vertices, normals)
         
         return vertices, normals, projections
+    
+    @jit
+    def get_min_particle_push_vector(self, centroid: jnp.ndarray, angle: float, positions: jnp.ndarray) -> jnp.ndarray:
+        vertices, normals, polygon_projections = self.get_vertices_normals_proj_jax(centroid, angle)
+        bacteria_projection = positions @ normals.transpose() #(n,2) x (2, v) -> (n,v) Array
+        print(bacteria_projection - polygon_projections)
+        only_negative_projections = lax.clamp(-float("inf"),bacteria_projection - polygon_projections,0.) # (n,v) Array
+        mpv_indx = jnp.argmax(only_negative_projections, axis=1) # (n,) Array
+        max_mpv = jnp.max(only_negative_projections, axis=1) #(n, Array)
+        print(max_mpv.shape)
+        return max_mpv[:, None] * normals[mpv_indx]
+        
 
 tree_util.register_pytree_node(ConvexPolygon, lambda s: ((s.normals_0, s.vertices_0, s.pos_gamma, s.rot_gamma), None), lambda _, xs: ConvexPolygon(xs[0], xs[1], xs[2], xs[3]))
 
