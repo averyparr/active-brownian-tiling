@@ -258,9 +258,10 @@ def get_initial_fill_shape(
         geometry_name: str,
         shape_list: List[jnp.ndarray], 
         box_size: float,
-        overwrite_cache: bool = False
+        overwrite_cache: bool = False,
+        sim_params: dict = {},
         ) -> Tuple[jnp.ndarray,jnp.ndarray]:
-    
+    num_particles = sim_params.get("num_particles",DEFAULT_NUM_PARTICLES)
     while True:
         if os.path.exists(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_r.npy")) and not overwrite_cache:
             initial_positions = jnp.load(os.path.join(PROJECT_DIR,"particle_distributions",f"{geometry_name}_r.npy"),allow_pickle=True)
@@ -312,7 +313,7 @@ def get_initial_fill_shape(
             # Break out of while loop if cache clear corrects assertion error
             break
 
-    return initial_positions,initial_headings
+    return initial_positions[:num_particles],initial_headings[:num_particles]
 
 
 
@@ -329,6 +330,8 @@ def main():
         "triangle_and_square",
         [square,triangle],
         DEFAULT_BOX_SIZE,
+        overwrite_cache=True,
+        sim_params = {"num_particles": 10000}
         )
     p1, c1 = convex_polygon(square, return_centroid=True)
     p2, c2 = convex_polygon(triangle, return_centroid=True)
