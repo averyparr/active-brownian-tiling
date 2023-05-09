@@ -7,7 +7,7 @@ from numpy import array as np_convert_to_array
 
 np_objarr = lambda x: np_convert_to_array(x,dtype="object")
 
-from collisions import sort_vertices_ccw, collide_ow
+from collisions import collide_ow
 
 from collections.abc import Iterable
 import jax.numpy as jnp
@@ -152,11 +152,16 @@ def run_sim(
     r_history = []
     theta_history = []
     poly_vertex_history = []
-    
+    poly_com_history = []
+    poly_angle_history = []
+
     angles = [0. for _ in polygons]
 
     for _ in polygons:
         poly_vertex_history.append([])
+        poly_com_history.append([])
+        poly_angle_history.append([])
+        
 
     rand_key = initial_random_key
 
@@ -196,6 +201,8 @@ def run_sim(
             theta_history.append(theta)
             for i,poly in enumerate(polygons):
                 poly_vertex_history[i].append(poly.get_vertices(centroids[i], angles[i]))
+                poly_angle_history[i].append(angles[i])
+                poly_com_history[i].append(centroids[i])
 
         if step >= next_reassignment_event:
             reassign_which_particles = (step>=next_reassignment_all_particles)
@@ -214,11 +221,10 @@ def run_sim(
     poly_vertex_history = [jnp.array(single_history) for single_history in poly_vertex_history]
 
     if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history, r_hell)
+        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
     else:
         return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
-# marker
-@jit
+
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
         r: jnp.ndarray, 
@@ -374,25 +380,36 @@ def main():
     )
     glu, c = glue_polygons_together([triangle])
     
-    sim_params = {
-        "num_particles": 10000,
-        "total_time": 1000.,
-        "do_animation": True,
-        "return_history": True,
-        "omega": 1e-6,
-        "v0": 1.,
-        "rotation_diffusion": 1e-3
-        }
+    angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
+    com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
+    for omega in [1e-7,2e-7,4e-7,7e-7,1e-6,2e-6,4e-6,7e-6,1e-5,3e-5,6e-5,1e-4,1e-3]:
+        sim_params = {
+            "num_particles": 10000,
+            "total_time": 10.,
+            "do_animation": True,
+            "return_history": True,
+            "omega": omega,
+            "v0": 1.,
+            "rotation_diffusion": 1e-3,
+            "use_jit": True
+            }
 
+        r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
+        angle_hist_ax.plot(jnp.array(angle_history[0]),label=r"$\omega = $"+f"{sim_params['omega']}")
+        angle_hist_ax.legend()
+        angle_hist_fig.savefig(f"{PROJECT_DIR}/plots/angle_history.png")
 
-    # r_0 = 0*r_0
-    # theta_0 = 0*theta_0 - 3*jnp.pi/4
-    # r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu1,glu2], [c1,c2], sim_params, hell=False)
+        com_hist_ax.plot(jnp.array(com_history[0]),label=r"$\omega = $"+f"{sim_params['omega']}")
+        com_hist_ax.legend()
+        com_hist_fig.savefig(f"{PROJECT_DIR}/plots/com_history.png")
 
-    animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=sim_params["omega"])
+        # r_0 = 0*r_0
+        # theta_0 = 0*theta_0 - 3*jnp.pi/4
+        # r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu1,glu2], [c1,c2], sim_params, hell=False)
+
+        animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=sim_params["omega"])
 
 
 if __name__ == "__main__":
