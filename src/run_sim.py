@@ -388,16 +388,6 @@ def main():
     # glu2, c2 = glue_polygons_together([t3,t4])
 
 
-<<<<<<< HEAD
-    square = jnp.array([[-10.,-10.],[10.,-10.],[10.,10.],[-10.,10.]])
-    r_0, theta_0 = get_initial_fill_shape(
-        "square",
-        [square],
-        DEFAULT_BOX_SIZE,
-        overwrite_cache=True
-    )
-    glu, c = glue_polygons_together([square])
-=======
     mono_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * 5 + jnp.array([[5,5]])
     mono_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * 5 + jnp.array([[5,5]])
     mono_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * 5 + jnp.array([[5,5]])
@@ -460,7 +450,6 @@ def main():
     mglu2, mc2 = glue_polygons_together([mmono2_sub_1,mmono2_sub_2,mmono2_sub_3,mmono2_sub_4])
     mglu3, mc3 = glue_polygons_together([mmono3_sub_1,mmono3_sub_2,mmono3_sub_3,mmono3_sub_4])
     mglu4, mc4 = glue_polygons_together([mmono4_sub_1,mmono4_sub_2,mmono4_sub_3,mmono4_sub_4])
->>>>>>> 39df6a0 (MONOTILE)
     
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
