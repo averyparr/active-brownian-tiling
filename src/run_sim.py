@@ -143,6 +143,7 @@ def run_sim(
     time.
     """
 
+    use_jit =                           sim_params.get("use_jit", True)
     num_particles =                     sim_params.get("num_particles",DEFAULT_NUM_PARTICLES)
     dt =                                sim_params.get("dt",DEFAULT_DT)
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
@@ -194,7 +195,12 @@ def run_sim(
     next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
     for step in trange(num_steps):
-        rand_key, r, theta, centroids, angles, r_hell = do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles, hell_q, r_hell)
+        if use_jit:
+            sim_update_chunk = _jit_do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles, hell_q, r_hell)
+        else:
+            sim_update_chunk = do_many_sim_steps(rand_key, r, theta, sim_params, polygons, centroids, angles, hell_q, r_hell)
+
+        rand_key, r, theta, centroids, angles, r_hell = sim_update_chunk
 
         if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
             r_history.append(r)
@@ -284,7 +290,7 @@ def do_many_sim_steps(
             r += r_hell
         
     return rand_key, r, theta, centroids, angles, r_hell
-
+_jit_do_many_sim_steps = jit(do_many_sim_steps)
 
 def get_initial_fill_shape(
         geometry_name: str,
