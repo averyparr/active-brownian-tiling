@@ -28,9 +28,8 @@ from visualization import animate_particles
 # Create a regular expression pattern to match "yes" or "no" and their variants
 yes_no_pattern = re.compile(r'^(y|yes|yeah|yup|yea|no|n|nope)$', re.IGNORECASE)
 
-TIMESTEPS_PER_FRAME = 1000
 MANY = 20
-assert TIMESTEPS_PER_FRAME % MANY == 0
+
 
 initial_random_key = rand.PRNGKey(678912390)
 
@@ -149,6 +148,9 @@ def run_sim(
     total_time =                        sim_params.get("total_time",DEFAULT_TOTAL_TIME)
     tumble_rate =                       sim_params.get("tumble_rate",DEFAULT_TUMBLE_RATE)
     return_history =                    sim_params.get("return_history", DEFAULT_RETURN_HISTORY)
+    timesteps_per_frame =               sim_params.get("timesteps_per_frame",DEFAULT_TIMESTEPS_PER_FRAME)
+
+    assert timesteps_per_frame % MANY == 0
 
     r_history = []
     theta_history = []
@@ -202,7 +204,7 @@ def run_sim(
 
         rand_key, r, theta, centroids, angles, r_hell = sim_update_chunk
 
-        if step % int(TIMESTEPS_PER_FRAME/MANY) == 0 and return_history:
+        if step % int(timesteps_per_frame/MANY) == 0 and return_history:
             r_history.append(r)
             theta_history.append(theta)
             for i,poly in enumerate(polygons):
@@ -389,25 +391,28 @@ def main():
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    for omega in [1e-7,2e-7,4e-7,7e-7,1e-6,2e-6,4e-6,7e-6,1e-5,3e-5,6e-5,1e-4,1e-3]:
+    for v0 in [1.,1.5,2.,2.5,3.,4.]:
         sim_params = {
             "num_particles": 10000,
-            "total_time": 10.,
+            "total_time": 1000.,
             "do_animation": True,
             "return_history": True,
-            "omega": omega,
-            "v0": 1.,
+            "omega": 0.,
+            "v0": v0,
             "rotation_diffusion": 1e-3,
-            "use_jit": True
+            "use_jit": True,
+            "timesteps_per_frame": 1000
             }
 
         r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
-        angle_hist_ax.plot(jnp.array(angle_history[0]),label=r"$\omega = $"+f"{sim_params['omega']}")
+        scan_param_title = r"$v_0 = $"+f"{sim_params['v0']}"
+
+        angle_hist_ax.plot(jnp.array(angle_history[0]),label=scan_param_title)
         angle_hist_ax.legend()
         angle_hist_fig.savefig(f"{PROJECT_DIR}/plots/angle_history.png")
 
-        com_hist_ax.plot(jnp.array(com_history[0]),label=r"$\omega = $"+f"{sim_params['omega']}")
+        com_hist_ax.plot(jnp.linalg.norm(jnp.array(com_history[0]),axis=1),label=scan_param_title+" [r^2]")
         com_hist_ax.legend()
         com_hist_fig.savefig(f"{PROJECT_DIR}/plots/com_history.png")
 
@@ -415,7 +420,7 @@ def main():
         # theta_0 = 0*theta_0 - 3*jnp.pi/4
         # r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu1,glu2], [c1,c2], sim_params, hell=False)
 
-        animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=sim_params["omega"])
+        animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=scan_param_title)
 
 
 if __name__ == "__main__":
