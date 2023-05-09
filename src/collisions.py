@@ -55,4 +55,6 @@ def collide_ow(o1: ConvexPolygon, c1: jnp.ndarray, a1: float, BB_MAX: float = 1.
     forces = mpvs * o1.pos_gamma
     torques_dt = relative_positions[:,0] * forces[:,1] - relative_positions[:,1] * forces[:,0]
 
-    return jnp.sum(mpvs), -jnp.sum(torques_dt) / o1.rot_gamma / 1e1
+    # print('mpvs', jnp.sum(mpvs, axis=0),'torqes', -jnp.sum(torques_dt) / o1.rot_gamma / 1e1)
+    
+    return jnp.sum(mpvs, axis=0), -jnp.sum(torques_dt) / o1.rot_gamma / 1e1
