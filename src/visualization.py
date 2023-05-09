@@ -76,7 +76,7 @@ def animate_particles(
             # Plot the arrows using quiver
             ax.quiver(positions[:, 0], positions[:, 1], headings[:, 0], headings[:, 1], color='red', angles='xy', scale_units='xy', scale=1)
         
-        for single_history,c in zip(poly_history,("r","b")):
+        for single_history,c in zip(poly_history,("r","b","g","m","r","b","g","m")):
             vertices = single_history[frame]
             ax.fill(*vertices.transpose(),c=c, facecolor="none", linewidth=1)
         

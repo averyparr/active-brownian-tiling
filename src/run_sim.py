@@ -230,14 +230,17 @@ def run_sim(
 
             next_reassignment_event = jnp.min(next_reassignment_all_particles)
 
-    poly_vertex_history = [jnp.array(single_history) for single_history in poly_vertex_history]
-
     if return_history:
-        return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
+        return (jnp.array(r_history), jnp.array(theta_history),
+                poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
     else:
+<<<<<<< HEAD
         return r, theta, [sub_poly.get_vertices(centroids[i] + sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
         
         # return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
+=======
+        return r, theta, [sub_poly.get_vertices(centroids[i]+sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
+>>>>>>> 39df6a0 (MONOTILE)
 
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
@@ -385,6 +388,7 @@ def main():
     # glu2, c2 = glue_polygons_together([t3,t4])
 
 
+<<<<<<< HEAD
     square = jnp.array([[-10.,-10.],[10.,-10.],[10.,10.],[-10.,10.]])
     r_0, theta_0 = get_initial_fill_shape(
         "square",
@@ -393,10 +397,75 @@ def main():
         overwrite_cache=True
     )
     glu, c = glue_polygons_together([square])
+=======
+    mono_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * 5 + jnp.array([[5,5]])
+    mono_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * 5 + jnp.array([[5,5]])
+    mono_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * 5 + jnp.array([[5,5]])
+    mono_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * 5 + jnp.array([[5,5]])
+    
+    mono2_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * 5 + jnp.array([[-10,-10]])
+    mono2_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * 5 + jnp.array([[-10,-10]])
+    mono2_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * 5 + jnp.array([[-10,-10]])
+    mono2_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * 5 + jnp.array([[-10,-10]])
+    
+    mono3_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * 5 + jnp.array([[-15,10]])
+    mono3_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * 5 + jnp.array([[-15,10]])
+    mono3_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * 5 + jnp.array([[-15,10]])
+    mono3_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * 5 + jnp.array([[-15,10]])
+    
+    mono4_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * 5 + jnp.array([[15,-10]])
+    mono4_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * 5 + jnp.array([[15,-10]])
+    mono4_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * 5 + jnp.array([[15,-10]])
+    mono4_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * 5 + jnp.array([[15,-10]])
+    
+    mmono_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * -5 + jnp.array([[35,15]])
+    mmono_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * -5 + jnp.array([[35,15]])
+    mmono_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * -5 + jnp.array([[35,15]])
+    mmono_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * -5 + jnp.array([[35,15]])
+    
+    mmono2_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * -5 + jnp.array([[-30,-10]])
+    mmono2_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * -5 + jnp.array([[-30,-10]])
+    mmono2_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * -5 + jnp.array([[-30,-10]])
+    mmono2_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * -5 + jnp.array([[-30,-10]])
+    
+    mmono3_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * -5 + jnp.array([[-15,30]])
+    mmono3_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * -5 + jnp.array([[-15,30]])
+    mmono3_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * -5 + jnp.array([[-15,30]])
+    mmono3_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * -5 + jnp.array([[-15,30]])
+    
+    mmono4_sub_1 = jnp.array([[1.25, 0.433013],[0.5, 0.866025],[-0.25, 0.433013],[0., 0.],[1.,0.]]) * -5 + jnp.array([[15,-30]])
+    mmono4_sub_2 = jnp.array([[1.25, 0.433013],[2., 0.],[2.75, 0.433013],[2.5, 0.866025],[1.5, 0.866025]]) * -5 + jnp.array([[15,-30]])
+    mmono4_sub_3 = jnp.array([[1., 1.73205],[0.5, 1.73205],[0.5, 0.866025],[1.25, 0.433013],[1.5, 0.866025]]) * -5 + jnp.array([[15,-30]])
+    mmono4_sub_4 = jnp.array([[2., 0.866025],[2., 1.73205],[1.25, 2.16506],[1., 1.73205],[1.5, 0.866025]]) * -5 + jnp.array([[15,-30]])
+    
+    triangle = jnp.array([[-10.,-10.],[10.,-10.],[-10.,10.]])
+    r_0, theta_0 = get_initial_fill_shape(
+        "monotile_1",
+        [mono_sub_1,mono_sub_2,mono_sub_3,mono_sub_4,
+         mono2_sub_1,mono2_sub_2,mono2_sub_3,mono2_sub_4,
+         mono3_sub_1,mono3_sub_2,mono3_sub_3,mono3_sub_4,
+         mono4_sub_1,mono4_sub_2,mono4_sub_3,mono4_sub_4,
+         mmono_sub_1,mmono_sub_2,mmono_sub_3,mmono_sub_4,
+         mmono2_sub_1,mmono2_sub_2,mmono2_sub_3,mmono2_sub_4,
+         mmono3_sub_1,mmono3_sub_2,mmono3_sub_3,mmono3_sub_4,
+         mmono4_sub_1,mmono4_sub_2,mmono4_sub_3,mmono4_sub_4],
+        DEFAULT_BOX_SIZE,
+        overwrite_cache=True
+    )
+    glu, c = glue_polygons_together([mono_sub_1,mono_sub_2,mono_sub_3,mono_sub_4])
+    glu2, c2 = glue_polygons_together([mono2_sub_1,mono2_sub_2,mono2_sub_3,mono2_sub_4])
+    glu3, c3 = glue_polygons_together([mono3_sub_1,mono3_sub_2,mono3_sub_3,mono3_sub_4])
+    glu4, c4 = glue_polygons_together([mono4_sub_1,mono4_sub_2,mono4_sub_3,mono4_sub_4])
+    mglu, mc = glue_polygons_together([mmono_sub_1,mmono_sub_2,mmono_sub_3,mmono_sub_4])
+    mglu2, mc2 = glue_polygons_together([mmono2_sub_1,mmono2_sub_2,mmono2_sub_3,mmono2_sub_4])
+    mglu3, mc3 = glue_polygons_together([mmono3_sub_1,mmono3_sub_2,mmono3_sub_3,mmono3_sub_4])
+    mglu4, mc4 = glue_polygons_together([mmono4_sub_1,mmono4_sub_2,mmono4_sub_3,mmono4_sub_4])
+>>>>>>> 39df6a0 (MONOTILE)
     
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
+<<<<<<< HEAD
     for rotation_diffusion in [1e-5,1e-4,3e-4,6e-4,1e-3,3e-3,6e-3,1e-2,1e-1]:
         sim_params = {
             "dt": 0.01,
@@ -407,9 +476,21 @@ def main():
             "rotation_diffusion":rotation_diffusion,
             "use_jit": True,
             "timesteps_per_frame": 10000
+=======
+    for v0 in [6.,]:
+        sim_params = {
+            "dt": 0.01,
+            "num_particles": 10000,
+            "total_time": 2.,
+            "do_animation": True,
+            "return_history": True,
+            "v0": v0,
+            "use_jit": False,
+            "timesteps_per_frame": 2000
+>>>>>>> 39df6a0 (MONOTILE)
             }
 
-        r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
+        r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu,glu2,glu3,glu4,mglu,mglu2,mglu3,mglu4], [c,c2,c3,c4,mc,mc2,mc3,mc4], sim_params, hell=False)
 
         times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
