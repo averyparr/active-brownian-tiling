@@ -234,13 +234,7 @@ def run_sim(
         return (jnp.array(r_history), jnp.array(theta_history),
                 poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
     else:
-<<<<<<< HEAD
-        return r, theta, [sub_poly.get_vertices(centroids[i] + sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
-        
-        # return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
-=======
         return r, theta, [sub_poly.get_vertices(centroids[i]+sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
->>>>>>> 39df6a0 (MONOTILE)
 
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
@@ -454,37 +448,24 @@ def main():
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-<<<<<<< HEAD
-    for rotation_diffusion in [1e-5,1e-4,3e-4,6e-4,1e-3,3e-3,6e-3,1e-2,1e-1]:
+    for v0 in [1., 2., 3., 4., 5., 6.,]:
         sim_params = {
             "dt": 0.01,
             "num_particles": 10000,
             "total_time": 5000.,
             "do_animation": True,
             "return_history": True,
-            "rotation_diffusion":rotation_diffusion,
+            "v0":v0,
             "use_jit": True,
             "timesteps_per_frame": 10000
-=======
-    for v0 in [6.,]:
-        sim_params = {
-            "dt": 0.01,
-            "num_particles": 10000,
-            "total_time": 2.,
-            "do_animation": True,
-            "return_history": True,
-            "v0": v0,
-            "use_jit": False,
-            "timesteps_per_frame": 2000
->>>>>>> 39df6a0 (MONOTILE)
             }
 
         r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu,glu2,glu3,glu4,mglu,mglu2,mglu3,mglu4], [c,c2,c3,c4,mc,mc2,mc3,mc4], sim_params, hell=False)
 
         times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
-        param_name = r"$D_R$"
-        scan_param_title = param_name + f" = {sim_params['rotation_diffusion']}"
+        param_name = r"$v_0$"
+        scan_param_title = param_name + f" = {sim_params['v0']}"
 
         angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation\n"+get_parameter_report(param_name))
         angle_hist_ax.set_xlabel("Time (a.u.)")
