@@ -94,9 +94,10 @@ def animate_particles(
     images = [Image.open(io.BytesIO(frame)) for frame in frames]
     images[0].save(gif_filename, save_all=True, append_images=images[1:], loop=0, duration=1000/DEFAULT_GIF_FPS)
 
-def get_parameter_report():
-    excluded_params = [1,6,7]
+def get_parameter_report(scan_param):
+    excluded_params = [6,7]
     param_names = ["n",r"$v_0$",r"$\gamma_T$",r"$D_T$",r"$\gamma_R$",r"$D_R$",r"$\omega$",r"$\lambda$"]
+    excluded_params.append(param_names.index(scan_param))
     param_vals = [
         DEFAULT_NUM_PARTICLES,
         DEFAULT_V0,

@@ -395,34 +395,34 @@ def main():
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    for v0 in [1.,1.5,2.,3.,4.,5.,6.,]:
+    for rotation_diffusion in [1e-4,3e-4,4.5e-4,6e-4,8e-4,1e-3,3e-3,6e-3,1e-2,1e-1]:
         sim_params = {
             "dt": 0.01,
             "num_particles": 10000,
-            "total_time": 2500.,
+            "total_time": 1000.,
             "do_animation": True,
             "return_history": True,
-            "v0": v0,
+            "rotation_diffusion": rotation_diffusion,
             "use_jit": True,
-            "timesteps_per_frame": 2000
+            "timesteps_per_frame": 1000
             }
 
         r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
         times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
-        param_name = r"$v_0$"
-        scan_param_title = param_name + f" = {sim_params['v0']}"
+        param_name = r"$D_R$"
+        scan_param_title = param_name + f" = {sim_params['rotation_diffusion']}"
 
-        angle_hist_ax.plot(times,jnp.array(angle_history[0]),label=scan_param_title)
+        angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation\n"+get_parameter_report(param_name))
         angle_hist_ax.set_xlabel("Time (a.u.)")
         angle_hist_ax.set_ylabel("Polygon Angle (rad)")
-        angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation")
-        angle_hist_ax.legend()
-        angle_hist_fig.savefig(f"{PROJECT_DIR}/plots/angle_history.png")
+        angle_hist_ax.plot(times,jnp.array(angle_history[0]),label=scan_param_title)
+        angle_hist_ax.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+        angle_hist_fig.savefig(f"{PROJECT_DIR}/plots/angle_history.png",bbox_inches="tight")
 
         max_displacement = DEFAULT_BOX_SIZE/jnp.sqrt(2)
-        com_hist_ax.set_title(f"Effect of {param_name} on Corner Docking Rate\n"+get_parameter_report())
+        com_hist_ax.set_title(f"Effect of {param_name} on Corner Docking Rate\n"+get_parameter_report(param_name))
         com_hist_ax.set_xlabel("Time (a.u.)")
         com_hist_ax.set_ylabel(r"Total Polygon Displacement (Normalized to $L/\sqrt{2}$)")
         com_hist_ax.plot(times,jnp.linalg.norm(jnp.array(com_history[0])/max_displacement,axis=1),label=scan_param_title)
