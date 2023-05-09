@@ -395,14 +395,14 @@ def main():
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    for translation_diffusion in [1e-4,1e-3,1e-2,1e-1,1e0, 1e1]:
+    for tumble_rate in [1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1e0,1e1,1e2]:
         sim_params = {
             "dt": 0.01,
             "num_particles": 10000,
             "total_time": 1000.,
             "do_animation": True,
             "return_history": True,
-            "translation_diffusion": translation_diffusion,
+            "tumble_rate": tumble_rate,
             "use_jit": True,
             "timesteps_per_frame": 1000
             }
@@ -411,8 +411,8 @@ def main():
 
         times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
-        param_name = r"$D_T$"
-        scan_param_title = param_name + f" = {sim_params['translation_diffusion']}"
+        param_name = r"$\lambda$"
+        scan_param_title = param_name + f" = {sim_params['tumble_rate']}"
 
         angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation\n"+get_parameter_report(param_name))
         angle_hist_ax.set_xlabel("Time (a.u.)")
