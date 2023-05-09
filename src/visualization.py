@@ -7,9 +7,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import FancyArrow
 from PIL import Image
 import io
-from constants import BOUNDING_BOX_VERTICES, DEFAULT_BOX_SIZE
-
-from constants import DEFAULT_GIF_FPS, PROJECT_DIR
+from constants import *
 
 def animate_particles(
         r: jnp.ndarray, 
@@ -95,3 +93,18 @@ def animate_particles(
     # Save the frames as an animated GIF
     images = [Image.open(io.BytesIO(frame)) for frame in frames]
     images[0].save(gif_filename, save_all=True, append_images=images[1:], loop=0, duration=1000/DEFAULT_GIF_FPS)
+
+def get_parameter_report():
+    excluded_params = [1,6,7]
+    param_names = ["n",r"$v_0$",r"$\gamma_T$",r"$D_T$",r"$\gamma_R$",r"$D_R$",r"$\omega$",r"$\lambda$"]
+    param_vals = [
+        DEFAULT_NUM_PARTICLES,
+        DEFAULT_V0,
+        DEFAULT_TRANSLATION_GAMMA,
+        DEFAULT_TRANSLATION_DIFFUSION,
+        DEFAULT_ROTATION_GAMMA,
+        DEFAULT_ROTATION_DIFFUSION,
+        DEFAULT_OMEGA,
+        DEFAULT_TUMBLE_RATE,
+        ]
+    return " | ".join([param_names[i] + " = " + str(param_vals[i]) for i in range(len(param_names)) if i not in excluded_params])

@@ -5,6 +5,8 @@ import os
 
 from numpy import array as np_convert_to_array
 
+from visualization import get_parameter_report
+
 np_objarr = lambda x: np_convert_to_array(x,dtype="object")
 
 from collisions import collide_ow
@@ -186,6 +188,8 @@ def run_sim(
     theta_history.append(theta)
     for i,poly in enumerate(polygons):
         poly_vertex_history[i].append(poly.get_vertices(centroids[i], angles[i]))
+        poly_com_history[i].append(centroids[i])
+        poly_angle_history[i].append(angles[i])
     
 
     # We know that angle reassignment is done as a Poisson process, so the time
@@ -391,37 +395,45 @@ def main():
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    for v0 in [1.,1.5,2.,2.5,3.,4.]:
+    for v0 in [1.,1.5,2.,3.,4.,5.,6.,]:
         sim_params = {
+            "dt": 0.01,
             "num_particles": 10000,
-            "total_time": 1000.,
+            "total_time": 2500.,
             "do_animation": True,
             "return_history": True,
-            "omega": 0.,
             "v0": v0,
-            "rotation_diffusion": 1e-3,
             "use_jit": True,
-            "timesteps_per_frame": 1000
+            "timesteps_per_frame": 2000
             }
 
         r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
-        scan_param_title = r"$v_0 = $"+f"{sim_params['v0']}"
+        times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
-        angle_hist_ax.plot(jnp.array(angle_history[0]),label=scan_param_title)
+        param_name = r"$v_0$"
+        scan_param_title = param_name + f" = {sim_params['v0']}"
+
+        angle_hist_ax.plot(times,jnp.array(angle_history[0]),label=scan_param_title)
+        angle_hist_ax.set_xlabel("Time (a.u.)")
+        angle_hist_ax.set_ylabel("Polygon Angle (rad)")
+        angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation")
         angle_hist_ax.legend()
         angle_hist_fig.savefig(f"{PROJECT_DIR}/plots/angle_history.png")
 
-        com_hist_ax.plot(jnp.linalg.norm(jnp.array(com_history[0]),axis=1),label=scan_param_title+" [r^2]")
-        com_hist_ax.legend()
-        com_hist_fig.savefig(f"{PROJECT_DIR}/plots/com_history.png")
+        max_displacement = DEFAULT_BOX_SIZE/jnp.sqrt(2)
+        com_hist_ax.set_title(f"Effect of {param_name} on Corner Docking Rate\n"+get_parameter_report())
+        com_hist_ax.set_xlabel("Time (a.u.)")
+        com_hist_ax.set_ylabel(r"Total Polygon Displacement (Normalized to $L/\sqrt{2}$)")
+        com_hist_ax.plot(times,jnp.linalg.norm(jnp.array(com_history[0])/max_displacement,axis=1),label=scan_param_title)
+        com_hist_ax.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
+        com_hist_fig.savefig(f"{PROJECT_DIR}/plots/com_history.png",bbox_inches="tight")
 
         # r_0 = 0*r_0
         # theta_0 = 0*theta_0 - 3*jnp.pi/4
         # r_history, theta_history, poly_history, r_hell = run_sim(r_0, theta_0, [glu1,glu2], [c1,c2], sim_params, hell=False)
 
         animate_particles(r_history, theta_history, poly_history, DEFAULT_BOX_SIZE,title=scan_param_title)
-
 
 if __name__ == "__main__":
     main()
