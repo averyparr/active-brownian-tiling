@@ -56,7 +56,6 @@ def animate_particles(
 
     # Set up the figure and axis
     fig, ax = plt.subplots(figsize=(6, 6))
-    ax.set_title(title)
     ax.set_xlim(-box_size*1.2/2, box_size*1.2/2)
     ax.set_ylim(-box_size*1.2/2, box_size*1.2/2)
 
@@ -65,6 +64,7 @@ def animate_particles(
         
         # Clear the axis
         ax.clear()
+        ax.set_title(title)
         ax.set_xlim(-box_size*1.2/2, box_size*1.2/2)
         ax.set_ylim(-box_size*1.2/2, box_size*1.2/2)
 
