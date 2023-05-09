@@ -234,7 +234,9 @@ def run_sim(
         return (jnp.array(r_history), jnp.array(theta_history),
                 poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
     else:
-        return r, theta, [sub_poly.get_vertices(centroids[i]+sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
+        return r, theta, [sub_poly.get_vertices(centroids[i] + sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
+        
+        # return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
 
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
