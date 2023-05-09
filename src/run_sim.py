@@ -235,7 +235,9 @@ def run_sim(
     if return_history:
         return (jnp.array(r_history), jnp.array(theta_history),poly_vertex_history,poly_com_history, poly_angle_history, r_hell)
     else:
-        return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
+        return r, theta, [sub_poly.get_vertices(centroids[i] + sub_com,angles[i]) for i,poly in enumerate(polygons) for sub_poly,sub_com in zip(poly.polygon_list,poly.get_relative_centroids(angles[i]))]
+        
+        # return r, theta, [poly.get_vertices(centroids[i],angles[i]) for i,poly in enumerate(polygons)]
 
 def do_many_sim_steps(
         rand_key: jnp.ndarray, 
@@ -383,36 +385,36 @@ def main():
     # glu2, c2 = glue_polygons_together([t3,t4])
 
 
-    triangle = jnp.array([[-10.,-10.],[10.,-10.],[-10.,10.]])
+    square = jnp.array([[-10.,-10.],[10.,-10.],[10.,10.],[-10.,10.]])
     r_0, theta_0 = get_initial_fill_shape(
-        "single_triangle",
-        [triangle],
+        "square",
+        [square],
         DEFAULT_BOX_SIZE,
         overwrite_cache=True
     )
-    glu, c = glue_polygons_together([triangle])
+    glu, c = glue_polygons_together([square])
     
     angle_hist_fig, angle_hist_ax = plt.subplots(figsize=(6,6))
     com_hist_fig, com_hist_ax = plt.subplots(figsize=(6,6))
 
-    for tumble_rate in [1e-6,1e-5,1e-4,1e-3,1e-2,1e-1,1e0,1e1,1e2]:
+    for rotation_diffusion in [1e-5,1e-4,3e-4,6e-4,1e-3,3e-3,6e-3,1e-2,1e-1]:
         sim_params = {
             "dt": 0.01,
             "num_particles": 10000,
-            "total_time": 1000.,
+            "total_time": 5000.,
             "do_animation": True,
             "return_history": True,
-            "tumble_rate": tumble_rate,
+            "rotation_diffusion":rotation_diffusion,
             "use_jit": True,
-            "timesteps_per_frame": 1000
+            "timesteps_per_frame": 10000
             }
 
         r_history, theta_history, poly_history, com_history, angle_history, _ = run_sim(r_0, theta_0, [glu], [c], sim_params, hell=False)
 
         times = jnp.linspace(0,sim_params["total_time"],len(r_history))
 
-        param_name = r"$\lambda$"
-        scan_param_title = param_name + f" = {sim_params['tumble_rate']}"
+        param_name = r"$D_R$"
+        scan_param_title = param_name + f" = {sim_params['rotation_diffusion']}"
 
         angle_hist_ax.set_title(f"Effect of {param_name} on polygon rotation\n"+get_parameter_report(param_name))
         angle_hist_ax.set_xlabel("Time (a.u.)")
