@@ -114,14 +114,18 @@ class ConvexPolygon:
         might be crushed by the polygon (close to a wall).
         '''
         
-        _, normals, projections = self.get_vertices_normals_proj_jax(centroid, angle)
+        vertices, normals, projections = self.get_vertices_normals_proj_jax(centroid, angle)
         
-        bacteria_projection = r @ normals.transpose() #(n,2) x (2, v) -> (n,v) Array
+        bacteria_projection = r @ normals.transpose() #(n,2) x (2,v) -> (n,v) Array
         only_negative_projections = lax.clamp(-float("inf"),bacteria_projection - (projections + cutoff),0.) # (n,v) Array
         
-        max_mpv = jnp.max(only_negative_projections, axis=1) #(n, Array); I know this is inefficient but can't get the better way to jax
+        mpv = jnp.max(only_negative_projections, axis=1) #(n, Array); I know this is inefficient but can't get the better way to jax
         
-        hell_q = jnp.heaviside(-max_mpv, 0.) # (n,) Array
+        vertex_norm_dist = jnp.linalg.norm(r[:, None, :] - vertices[None, :, :], axis=2) # (n,v,2) -> (n,v)
+        vertex_check = jnp.heaviside(jnp.min(vertex_norm_dist, axis=1) - (10*cutoff), 0) # (n,v) -> (n,)
+        
+        hell_q = jnp.heaviside(-mpv, 0.) # (n,) Array
+        hell_q = hell_q * vertex_check
         
         return hell_q
         
