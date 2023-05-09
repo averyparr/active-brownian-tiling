@@ -301,7 +301,16 @@ class GluedPolygons:
                 self_mpv += self_mpv_incremental/len(other.polygon_list)/len(self.polygon_list)
                 other_mpv += other_mpv_incremental/len(other.polygon_list)/len(self.polygon_list)
         return self_mpv, other_mpv
-
+    
+    @jit
+    def hell_query(self, centroid: jnp.ndarray, angle: float, r: jnp.ndarray, cutoff: float=0.1) -> jnp.ndarray:
+        '''
+        Returns a (n,) array of 1s and 0s with a 1 in each position where a particle 
+        might be crushed by the polygon (close to a wall).
+        '''
+        return jnp.heaviside(sum(
+            poly.hell_query(centroid+sub_com,angle,r) 
+            for poly,sub_com in zip(self.polygon_list,self.get_relative_centroids(angle))), 0)
 
 
 tree_util.register_pytree_node(GluedPolygons, lambda s: ((s.polygon_list,s.relative_centroids,s.pos_gamma,s.rot_gamma), None), lambda _, xs: GluedPolygons(xs[0],xs[1],xs[2],xs[3]))
